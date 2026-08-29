@@ -34,7 +34,15 @@ const DEFAULTS = {
     danbooru: { baseUrl: 'https://danbooru.donmai.us', apiKey: '', username: '' },
     gelbooru: { baseUrl: 'https://gelbooru.com', apiKey: '', userId: '' },
     e621: { baseUrl: 'https://e621.net', apiKey: '', username: '', userAgent: 'nyarr/0.1 (by anonymous)' },
-    rule34: { baseUrl: 'https://api.rule34.xxx', apiKey: '', userId: '' }
+    rule34: { baseUrl: 'https://api.rule34.xxx', apiKey: '', userId: '' },
+    safebooru: { baseUrl: 'https://safebooru.org', apiKey: '', userId: '' },
+    konachan: { baseUrl: 'https://konachan.com', apiKey: '', username: '' },
+    yandere: { baseUrl: 'https://yande.re', apiKey: '', username: '' },
+    furbooru: { baseUrl: 'https://furbooru.com', apiKey: '', username: '', userAgent: 'nyarr/0.1 (by anonymous)' },
+    sankaku: { baseUrl: 'https://idol.sankakucomplex.com', apiKey: '', userId: '' },
+    realbooru: { baseUrl: 'https://realbooru.com', apiKey: '', userId: '' },
+    tbib: { baseUrl: 'https://tbib.org', apiKey: '', userId: '' },
+    behoimi: { baseUrl: 'https://behoimi.org', apiKey: '', userId: '' }
   },
   tagSets: [],
   posts: [],
@@ -60,6 +68,16 @@ for (const key of Object.keys(DEFAULTS)) {
 // an existing install doesn't crash on a missing field.
 for (const key of Object.keys(DEFAULTS.general)) {
   if (!(key in cache.general)) cache.general[key] = DEFAULTS.general[key];
+}
+// Backfill first-level nested keys of other object-shaped defaults (like
+// `settings.<indexer>`) as indexers are added over time, so an existing
+// db.json gets the new indexer entries with empty credentials.
+for (const key of Object.keys(DEFAULTS)) {
+  if (!cache[key] || typeof cache[key] !== 'object') continue;
+  for (const inner of Object.keys(DEFAULTS[key] || {})) {
+    if (!(inner in DEFAULTS[key])) continue;
+    if (!(inner in cache[key])) cache[key][inner] = DEFAULTS[key][inner];
+  }
 }
 
 let writeScheduled = false;
