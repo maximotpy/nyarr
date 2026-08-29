@@ -468,29 +468,33 @@ async function renderSettings() {
 
 async function renderIndexerSettings() {
   const settings = await api('/settings');
-  $content.innerHTML = `<div class="settings-grid">${SOURCES.map((s) => indexerCard(s, settings[s.id] || {})).join('')}</div>`;
+  const configured = SOURCES.filter((s) => {
+    const c = settings[s.id] || {};
+    return Object.keys(c).some((k) => k !== 'baseUrl' && c[k]);
+  });
 
-  SOURCES.forEach((s) => {
-    const form = document.getElementById(`settings-form-${s.id}`);
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const fd = new FormData(form);
-      const payload = Object.fromEntries(fd.entries());
-      try {
-        await api(`/settings/${s.id}`, { method: 'PUT', body: JSON.stringify(payload) });
-        toast(`${s.label} credentials saved`);
-      } catch (err) {
-        toast(err.message, 'error');
-      }
-    });
+  $content.innerHTML = `
+    <div class="indexers-page">
+      <div class="indexers-toolbar">
+        <button class="btn btn-primary" id="addIndexerBtn">+ Add Indexer</button>
+        <span class="hint">${configured.length} of ${SOURCES.length} indexers configured</span>
+      </div>
+      <div class="settings-grid">
+        ${configured.length
+      ? configured.map((s) => indexerCard(s, settings[s.id] || {})).join('')
+      : `<div class="settings-card"><p class="hint" style="margin:0">No indexers configured yet. Click <strong>Add Indexer</strong> to pick a booru and enter its credentials.</p></div>`}
+      </div>
+    </div>`;
+
+  document.getElementById('addIndexerBtn').onclick = () => openAddIndexerModal(settings);
+
+  configured.forEach((s) => {
+    document.getElementById(`edit-${s.id}`).onclick = () => openIndexerFormModal(s, settings[s.id] || {}, () => renderIndexerSettings());
     document.getElementById(`test-${s.id}`).addEventListener('click', async () => {
       const resultEl = document.getElementById(`test-result-${s.id}`);
       resultEl.textContent = 'Testing…';
       resultEl.className = 'test-result';
-      const fd = new FormData(form);
-      const payload = Object.fromEntries(fd.entries());
       try {
-        await api(`/settings/${s.id}`, { method: 'PUT', body: JSON.stringify(payload) });
         const result = await api(`/settings/${s.id}/test`, { method: 'POST' });
         if (result.authenticated === true) {
           resultEl.textContent = 'Credentials verified';
@@ -510,65 +514,50 @@ async function renderIndexerSettings() {
   });
 }
 
-function indexerCard(source, creds) {
-  const fieldsBySource = {
-    danbooru: [
-      { name: 'username', label: 'Username' },
-      { name: 'apiKey', label: 'API key' }
-    ],
-    gelbooru: [
-      { name: 'userId', label: 'User ID' },
-      { name: 'apiKey', label: 'API key' }
-    ],
-    e621: [
-      { name: 'username', label: 'Username' },
-      { name: 'apiKey', label: 'API key' },
-      { name: 'userAgent', label: 'User agent (required by e621)' }
-    ],
-    rule34: [
-      { name: 'userId', label: 'User ID' },
-      { name: 'apiKey', label: 'API key' }
-    ],
-    safebooru: [
-      { name: 'userId', label: 'User ID' },
-      { name: 'apiKey', label: 'API key' }
-    ],
-    konachan: [
-      { name: 'username', label: 'Username' },
-      { name: 'apiKey', label: 'API key' }
-    ],
-    yandere: [
-      { name: 'username', label: 'Username' },
-      { name: 'apiKey', label: 'API key' }
-    ],
-    furbooru: [
-      { name: 'username', label: 'Username' },
-      { name: 'apiKey', label: 'API key' },
-      { name: 'userAgent', label: 'User agent' }
-    ],
-    sankaku: [
-      { name: 'userId', label: 'User ID' },
-      { name: 'apiKey', label: 'API key' }
-    ],
-    realbooru: [
-      { name: 'userId', label: 'User ID' },
-      { name: 'apiKey', label: 'API key' }
-    ],
-    tbib: [
-      { name: 'userId', label: 'User ID' },
-      { name: 'apiKey', label: 'API key' }
-    ],
-    behoimi: [
-      { name: 'userId', label: 'User ID' },
-      { name: 'apiKey', label: 'API key' }
-    ]
-  };
-  const fields = fieldsBySource[source.id] || [];
-  return `
-  <div class="settings-card">
-    <h3>${source.label}</h3>
+function openAddIndexerModal(settings) {
+  openModal(`
+    <h2>Add Indexer</h2>
+    <div class="form-row">
+      <input type="text" id="indexerSearch" placeholder="Search indexers" autocomplete="off" />
+    </div>
+    <p class="hint" style="margin:0 0 10px">nyarr supports the booru sources below. Select an indexer to add its API credentials.</p>
+    <div class="indexer-list" id="indexerList">
+      ${SOURCES.map((s) => {
+    const c = settings[s.id] || {};
+    const configured = Object.keys(c).some((k) => k !== 'baseUrl' && c[k]);
+    return `<div class="indexer-list-item ${configured ? 'configured' : ''}" data-id="${s.id}">
+          <span class="indexer-name">${s.label}</span>
+          ${configured ? '<span class="tag tag-ok">Configured</span>' : ''}
+        </div>`;
+  }).join('')}
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn" id="cancelModalBtn">Close</button>
+    </div>
+  `);
+  document.getElementById('cancelModalBtn').onclick = closeModal;
+
+  const list = document.getElementById('indexerList');
+  document.getElementById('indexerSearch').addEventListener('input', (e) => {
+    const q = e.target.value.toLowerCase();
+    list.querySelectorAll('.indexer-list-item').forEach((el) => {
+      el.style.display = el.querySelector('.indexer-name').textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+  });
+  list.querySelectorAll('.indexer-list-item').forEach((el) => {
+    el.onclick = () => {
+      const source = SOURCES.find((s) => s.id === el.dataset.id);
+      openIndexerFormModal(source, settings[source.id] || {}, () => renderIndexerSettings());
+    };
+  });
+}
+
+function openIndexerFormModal(source, creds, onSaved) {
+  const fields = INDEXER_FIELDS[source.id] || [];
+  openModal(`
+    <h2>${source.label}</h2>
     <p class="hint">Base URL: <span class="mono">${esc(creds.baseUrl || '')}</span></p>
-    <form id="settings-form-${source.id}">
+    <form id="indexer-form">
       <input type="hidden" name="baseUrl" value="${esc(creds.baseUrl || '')}" />
       ${fields.map((f) => `
         <div class="form-row">
@@ -576,12 +565,119 @@ function indexerCard(source, creds) {
           <input name="${f.name}" value="${esc(creds[f.name] || '')}" autocomplete="off" />
         </div>
       `).join('')}
-      <div class="settings-card-footer">
-        <button type="submit" class="btn btn-primary btn-sm">Save</button>
-        <button type="button" class="btn btn-sm" id="test-${source.id}">Test connection</button>
-        <span class="test-result" id="test-result-${source.id}"></span>
+      <div class="modal-actions">
+        <span class="test-result" id="test-result-modal"></span>
+        <button type="button" class="btn" id="testModalBtn">Test connection</button>
+        <button type="button" class="btn" id="cancelModalBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
       </div>
     </form>
+  `);
+  document.getElementById('cancelModalBtn').onclick = closeModal;
+
+  const form = document.getElementById('indexer-form');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = Object.fromEntries(new FormData(form).entries());
+    try {
+      await api(`/settings/${source.id}`, { method: 'PUT', body: JSON.stringify(payload) });
+      toast(`${source.label} credentials saved`);
+      closeModal();
+      onSaved && onSaved();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  });
+  document.getElementById('testModalBtn').addEventListener('click', async () => {
+    const resultEl = document.getElementById('test-result-modal');
+    resultEl.textContent = 'Testing…';
+    resultEl.className = 'test-result';
+    const payload = Object.fromEntries(new FormData(form).entries());
+    try {
+      await api(`/settings/${source.id}`, { method: 'PUT', body: JSON.stringify(payload) });
+      const result = await api(`/settings/${source.id}/test`, { method: 'POST' });
+      if (result.authenticated === true) {
+        resultEl.textContent = 'Credentials verified';
+        resultEl.className = 'test-result ok';
+      } else if (result.authenticated === false) {
+        resultEl.textContent = 'Reachable (no credentials set)';
+        resultEl.className = 'test-result';
+      } else {
+        resultEl.textContent = result.note || 'Reachable — credentials not verifiable';
+        resultEl.className = 'test-result';
+      }
+    } catch (err) {
+      resultEl.textContent = err.message;
+      resultEl.className = 'test-result fail';
+    }
+  });
+}
+
+const INDEXER_FIELDS = {
+  danbooru: [
+    { name: 'username', label: 'Username' },
+    { name: 'apiKey', label: 'API key' }
+  ],
+  gelbooru: [
+    { name: 'userId', label: 'User ID' },
+    { name: 'apiKey', label: 'API key' }
+  ],
+  e621: [
+    { name: 'username', label: 'Username' },
+    { name: 'apiKey', label: 'API key' },
+    { name: 'userAgent', label: 'User agent (required by e621)' }
+  ],
+  rule34: [
+    { name: 'userId', label: 'User ID' },
+    { name: 'apiKey', label: 'API key' }
+  ],
+  safebooru: [
+    { name: 'userId', label: 'User ID' },
+    { name: 'apiKey', label: 'API key' }
+  ],
+  konachan: [
+    { name: 'username', label: 'Username' },
+    { name: 'apiKey', label: 'API key' }
+  ],
+  yandere: [
+    { name: 'username', label: 'Username' },
+    { name: 'apiKey', label: 'API key' }
+  ],
+  furbooru: [
+    { name: 'username', label: 'Username' },
+    { name: 'apiKey', label: 'API key' },
+    { name: 'userAgent', label: 'User agent' }
+  ],
+  sankaku: [
+    { name: 'userId', label: 'User ID' },
+    { name: 'apiKey', label: 'API key' }
+  ],
+  realbooru: [
+    { name: 'userId', label: 'User ID' },
+    { name: 'apiKey', label: 'API key' }
+  ],
+  tbib: [
+    { name: 'userId', label: 'User ID' },
+    { name: 'apiKey', label: 'API key' }
+  ],
+  behoimi: [
+    { name: 'userId', label: 'User ID' },
+    { name: 'apiKey', label: 'API key' }
+  ]
+};
+
+function indexerCard(source, creds) {
+  const fields = INDEXER_FIELDS[source.id] || [];
+  const filled = fields.filter((f) => creds[f.name]).length;
+  return `
+  <div class="settings-card">
+    <h3>${source.label}</h3>
+    <p class="hint">Base URL: <span class="mono">${esc(creds.baseUrl || '')}</span> · ${filled}/${fields.length} fields set</p>
+    <div class="settings-card-footer">
+      <button type="button" class="btn btn-primary btn-sm" id="edit-${source.id}">Edit credentials</button>
+      <button type="button" class="btn btn-sm" id="test-${source.id}">Test connection</button>
+      <span class="test-result" id="test-result-${source.id}"></span>
+    </div>
   </div>`;
 }
 
