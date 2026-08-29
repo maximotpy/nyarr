@@ -1,0 +1,15 @@
+{
+  "name": "nyarr",
+  "version": "0.1.0",
+  "description": "A *arr-style manager for booru image boards (Danbooru, Gelbooru, e621, Rule34)",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
