@@ -58,7 +58,15 @@ const SOURCES = [
   { id: 'danbooru', label: 'Danbooru' },
   { id: 'gelbooru', label: 'Gelbooru' },
   { id: 'e621', label: 'e621' },
-  { id: 'rule34', label: 'Rule34' }
+  { id: 'rule34', label: 'Rule34' },
+  { id: 'safebooru', label: 'Safebooru' },
+  { id: 'konachan', label: 'Konachan' },
+  { id: 'yandere', label: 'Yande.re' },
+  { id: 'furbooru', label: 'Furbooru' },
+  { id: 'sankaku', label: 'Sankaku Complex' },
+  { id: 'realbooru', label: 'Realbooru' },
+  { id: 'tbib', label: 'TBIB' },
+  { id: 'behoimi', label: 'Behoimi (3dBooru)' }
 ];
 
 const RATING_FILTERS = [
@@ -357,8 +365,8 @@ function postCard(p) {
       <div class="post-source"><span class="rating-dot rating-${p.rating}"></span>${esc(p.source)} · ${esc(p.sourcePostId)}</div>
       <div class="post-actions">
         ${p.status === 'downloaded'
-          ? `<a class="btn btn-sm" href="/library-files/${p.id}" target="_blank">Open</a>`
-          : `<button class="btn btn-sm" id="post-dl-${p.id}" ${p.status === 'downloading' || p.status === 'queued' ? 'disabled' : ''}>${p.status === 'downloading' ? 'Downloading…' : p.status === 'queued' ? 'Queued…' : 'Download'}</button>`}
+      ? `<a class="btn btn-sm" href="/library-files/${p.id}" target="_blank">Open</a>`
+      : `<button class="btn btn-sm" id="post-dl-${p.id}" ${p.status === 'downloading' || p.status === 'queued' ? 'disabled' : ''}>${p.status === 'downloading' ? 'Downloading…' : p.status === 'queued' ? 'Queued…' : 'Download'}</button>`}
         <button class="btn btn-sm btn-icon btn-danger" id="post-del-${p.id}" title="Remove">🗑</button>
       </div>
     </div>
@@ -486,6 +494,39 @@ function indexerCard(source, creds) {
       { name: 'userAgent', label: 'User agent (required by e621)' }
     ],
     rule34: [
+      { name: 'userId', label: 'User ID' },
+      { name: 'apiKey', label: 'API key' }
+    ],
+    safebooru: [
+      { name: 'userId', label: 'User ID' },
+      { name: 'apiKey', label: 'API key' }
+    ],
+    konachan: [
+      { name: 'username', label: 'Username' },
+      { name: 'apiKey', label: 'API key' }
+    ],
+    yandere: [
+      { name: 'username', label: 'Username' },
+      { name: 'apiKey', label: 'API key' }
+    ],
+    furbooru: [
+      { name: 'username', label: 'Username' },
+      { name: 'apiKey', label: 'API key' },
+      { name: 'userAgent', label: 'User agent' }
+    ],
+    sankaku: [
+      { name: 'userId', label: 'User ID' },
+      { name: 'apiKey', label: 'API key' }
+    ],
+    realbooru: [
+      { name: 'userId', label: 'User ID' },
+      { name: 'apiKey', label: 'API key' }
+    ],
+    tbib: [
+      { name: 'userId', label: 'User ID' },
+      { name: 'apiKey', label: 'API key' }
+    ],
+    behoimi: [
       { name: 'userId', label: 'User ID' },
       { name: 'apiKey', label: 'API key' }
     ]
@@ -769,8 +810,8 @@ async function navigateFolderBrowser(targetPath, onChoose) {
     <div class="folder-list">
       ${data.parent ? `<div class="folder-item" id="folderUp"><span class="icon">↩</span>..</div>` : ''}
       ${data.directories.length
-        ? data.directories.map((d) => `<div class="folder-item" data-name="${esc(d)}"><span class="icon">📁</span>${esc(d)}</div>`).join('')
-        : '<div class="folder-item muted" style="cursor:default">No subfolders here</div>'}
+      ? data.directories.map((d) => `<div class="folder-item" data-name="${esc(d)}"><span class="icon">📁</span>${esc(d)}</div>`).join('')
+      : '<div class="folder-item muted" style="cursor:default">No subfolders here</div>'}
     </div>
     <div class="modal-actions">
       <button class="btn" id="folderCancel">Cancel</button>
