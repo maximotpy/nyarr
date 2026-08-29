@@ -1,24 +1,25 @@
 :root {
-  --bg: #0f1419;
-  --bg-raised: #131a21;
-  --panel: #17202a;
-  --panel-hover: #1c2834;
-  --border: #273341;
-  --border-soft: #1d2833;
-  --text: #e8edf2;
-  --text-dim: #a6b2bf;
-  --text-faint: #6c7a89;
-  /* sonarr/radarr signature accent: warm orange-red */
-  --accent: #ff5a4c;
-  --accent-dim: #b8403a;
-  --accent-glow: rgba(255, 90, 76, 0.14);
-  --danger: #ff5a4c;
-  --warn: #ffb340;
-  --safe: #7bc95c;
-  --questionable: #ffb340;
-  --explicit: #ff5a4c;
-  --radius: 3px;
-  --radius-sm: 2px;
+  /* neutral grayscale base, no blue tint */
+  --bg: #1a1a1a;
+  --bg-raised: #202020;
+  --panel: #242424;
+  --panel-hover: #2b2b2b;
+  --border: #3d3a37;
+  --border-soft: #2d2c2a;
+  --text: #e9e6e1;
+  --text-dim: #a8a29a;
+  --text-faint: #726c64;
+  /* cardboard / kraft-paper brown accent */
+  --accent: #b5793f;
+  --accent-dim: #8a5c30;
+  --accent-glow: rgba(181, 121, 63, 0.16);
+  --danger: #b5544a;
+  --warn: #c99a4a;
+  --safe: #7d8f5c;
+  --questionable: #c99a4a;
+  --explicit: #b5544a;
+  --radius: 0;
+  --radius-sm: 0;
   --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, ui-monospace, monospace;
 }
@@ -375,7 +376,7 @@ button {
   font-family: var(--font-mono);
   font-size: 10px;
   padding: 1px 7px;
-  border-radius: 2px;
+  border-radius: 0;
   border: 1px solid var(--border);
   color: var(--text-dim);
   text-transform: uppercase;
@@ -395,7 +396,7 @@ button {
   border: 1px solid var(--border-soft);
   color: var(--text-dim);
   padding: 1px 7px;
-  border-radius: 2px;
+  border-radius: 0;
 }
 
 .tagset-meta {
@@ -437,7 +438,7 @@ button {
 .switch {
   width: 32px;
   height: 18px;
-  border-radius: 20px;
+  border-radius: 0;
   background: var(--border);
   position: relative;
   cursor: pointer;
@@ -520,8 +521,8 @@ button {
   font-family: var(--font-mono);
   font-size: 9px;
   padding: 1px 6px;
-  border-radius: 2px;
-  background: rgba(10, 14, 19, 0.8);
+  border-radius: 0;
+  background: rgba(10, 10, 10, 0.8);
   border: 1px solid var(--border);
 }
 
@@ -684,35 +685,78 @@ button {
   color: var(--danger);
 }
 
-/* ---------- Settings tabs ---------- */
+/* ---------- Settings sub-nav (sidebar, arr-style) ---------- */
 
-.settings-tabs {
+.nav-sub {
+  display: none;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 0 8px;
+}
+
+.nav-sub.open {
   display: flex;
-  gap: 2px;
-  margin-bottom: 18px;
-  border-bottom: 1px solid var(--border-soft);
 }
 
-.settings-tab {
-  padding: 8px 14px;
-  font-size: 13px;
+.nav-sub-link {
+  display: block;
+  padding: 7px 16px 7px 40px;
+  color: var(--text-faint);
+  font-size: 12.5px;
   font-weight: 500;
-  color: var(--text-dim);
-  border-bottom: 2px solid transparent;
-  cursor: pointer;
-  background: none;
-  border-left: none;
-  border-right: none;
-  border-top: none;
+  border-left: 3px solid transparent;
+  transition: background 0.1s ease, color 0.1s ease, border-color 0.1s ease;
 }
 
-.settings-tab:hover {
+.nav-sub-link:hover {
+  background: var(--panel);
   color: var(--text);
 }
 
-.settings-tab.active {
+.nav-sub-link.active {
+  background: var(--panel);
   color: var(--accent);
-  border-bottom-color: var(--accent);
+  border-left-color: var(--accent);
+}
+
+/* ---------- Settings landing (category index) ---------- */
+
+.settings-landing {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  max-width: 720px;
+}
+
+.settings-landing-item {
+  display: block;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.settings-landing-item:last-child {
+  border-bottom: none;
+}
+
+.settings-landing-item h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 4px;
+}
+
+.settings-landing-item:hover h3 {
+  color: var(--accent);
+  text-decoration-color: var(--accent);
+}
+
+.settings-landing-item p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-faint);
 }
 
 .form-row input[readonly] {
@@ -820,7 +864,7 @@ button {
 .modal {
   background: var(--bg-raised);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 0;
   width: 100%;
   max-width: 460px;
   padding: 20px 22px 18px;
@@ -969,6 +1013,23 @@ button {
 
   .sidebar-footer {
     display: none;
+  }
+
+  .nav-sub {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    padding: 0 8px 6px;
+  }
+
+  .nav-sub-link {
+    padding: 6px 10px;
+    border-left: none;
+    border-bottom: 2px solid transparent;
+  }
+
+  .nav-sub-link.active {
+    border-bottom-color: var(--accent);
   }
 
   .content {
