@@ -685,6 +685,65 @@ button {
   color: var(--danger);
 }
 
+/* ---------- Indexers page (Add Indexer flow) ---------- */
+
+.indexers-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.indexer-list {
+  max-height: 340px;
+  overflow-y: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  margin-bottom: 4px;
+}
+
+.indexer-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  font-size: 12.5px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-soft);
+  transition: background 0.1s ease;
+}
+
+.indexer-list-item:last-child {
+  border-bottom: none;
+}
+
+.indexer-list-item:hover {
+  background: var(--panel-hover);
+}
+
+.indexer-list-item .indexer-name {
+  font-weight: 500;
+}
+
+.indexer-list-item.configured .indexer-name {
+  color: var(--accent);
+}
+
+.tag {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.tag-ok {
+  background: rgba(46, 160, 67, 0.15);
+  color: var(--safe);
+}
+
 /* ---------- Settings sub-nav (sidebar, arr-style) ---------- */
 
 .nav-sub {
