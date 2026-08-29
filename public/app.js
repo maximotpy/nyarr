@@ -90,19 +90,47 @@ const ROUTES = {
   settings: { title: 'Settings', render: renderSettings }
 };
 
+const SETTINGS_CATEGORIES = [
+  { id: 'general', label: 'General', desc: 'Instance name and port' },
+  { id: 'library', label: 'Library', desc: 'Where downloaded files are saved, and importing an existing folder' },
+  { id: 'security', label: 'Security', desc: 'Web UI authentication and the API key' },
+  { id: 'indexers', label: 'Indexers', desc: 'Credentials for each booru source' },
+  { id: 'backup', label: 'Backup & Restore', desc: 'Export or restore all nyarr data as a single file' }
+];
+
 let currentRoute = 'dashboard';
+let currentSettingsSub = null;
 
 function route() {
-  const hash = window.location.hash.replace('#/', '') || 'dashboard';
+  const parts = window.location.hash.replace('#/', '').split('/').filter(Boolean);
+  const hash = parts[0] || 'dashboard';
   const found = ROUTES[hash] ? hash : 'dashboard';
   currentRoute = found;
-  document.querySelectorAll('.nav a').forEach((a) => {
+  currentSettingsSub = found === 'settings' ? (parts[1] || null) : null;
+
+  document.querySelectorAll('.nav > a').forEach((a) => {
     a.classList.toggle('active', a.dataset.route === found);
   });
-  $pageTitle.textContent = ROUTES[found].title;
+  renderNavSub();
+
+  const activeCategory = SETTINGS_CATEGORIES.find((c) => c.id === currentSettingsSub);
+  $pageTitle.textContent = activeCategory ? activeCategory.label : ROUTES[found].title;
   $topbarActions.innerHTML = '';
   $content.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
   ROUTES[found].render();
+}
+
+function renderNavSub() {
+  const el = document.getElementById('navSub');
+  if (currentRoute !== 'settings') {
+    el.classList.remove('open');
+    el.innerHTML = '';
+    return;
+  }
+  el.classList.add('open');
+  el.innerHTML = SETTINGS_CATEGORIES.map((c) => `
+    <a href="#/settings/${c.id}" class="nav-sub-link${currentSettingsSub === c.id ? ' active' : ''}">${c.label}</a>
+  `).join('');
 }
 
 window.addEventListener('hashchange', route);
@@ -414,29 +442,33 @@ async function renderActivity() {
 
 // ---------- settings ----------
 
-let settingsTab = 'general';
-
 async function renderSettings() {
-  $content.innerHTML = `
-    <div class="settings-tabs">
-      <button class="settings-tab ${settingsTab === 'general' ? 'active' : ''}" data-tab="general">General</button>
-      <button class="settings-tab ${settingsTab === 'indexers' ? 'active' : ''}" data-tab="indexers">Indexers</button>
-    </div>
-    <div id="settingsTabBody"><div class="empty"><span class="spinner"></span></div></div>
-  `;
-  document.querySelectorAll('.settings-tab').forEach((btn) => {
-    btn.addEventListener('click', () => { settingsTab = btn.dataset.tab; renderSettings(); });
-  });
-  if (settingsTab === 'general') await renderGeneralSettings();
-  else await renderIndexerSettings();
+  if (!currentSettingsSub) {
+    $content.innerHTML = `
+      <div class="settings-landing">
+        ${SETTINGS_CATEGORIES.map((c) => `
+          <a class="settings-landing-item" href="#/settings/${c.id}">
+            <h3>${c.label}</h3>
+            <p>${c.desc}</p>
+          </a>
+        `).join('')}
+      </div>
+    `;
+    return;
+  }
+  if (currentSettingsSub === 'indexers') return renderIndexerSettings();
+  if (currentSettingsSub === 'general') return renderGeneralCategory();
+  if (currentSettingsSub === 'library') return renderLibraryCategory();
+  if (currentSettingsSub === 'security') return renderSecurityCategory();
+  if (currentSettingsSub === 'backup') return renderBackupCategory();
+  window.location.hash = '#/settings';
 }
 
-// ---- Indexers tab (per-booru credentials) ----
+// ---- Indexers category (per-booru credentials) ----
 
 async function renderIndexerSettings() {
-  const body = document.getElementById('settingsTabBody');
   const settings = await api('/settings');
-  body.innerHTML = `<div class="settings-grid">${SOURCES.map((s) => indexerCard(s, settings[s.id] || {})).join('')}</div>`;
+  $content.innerHTML = `<div class="settings-grid">${SOURCES.map((s) => indexerCard(s, settings[s.id] || {})).join('')}</div>`;
 
   SOURCES.forEach((s) => {
     const form = document.getElementById(`settings-form-${s.id}`);
@@ -553,15 +585,12 @@ function indexerCard(source, creds) {
   </div>`;
 }
 
-// ---- General tab ----
+// ---- General category ----
 
-async function renderGeneralSettings() {
-  const body = document.getElementById('settingsTabBody');
+async function renderGeneralCategory() {
   const g = await api('/general');
-
-  body.innerHTML = `
+  $content.innerHTML = `
     <div class="settings-grid">
-
       <div class="settings-card">
         <h3>Instance</h3>
         <p class="hint">Cosmetic — shown as the page title and sidebar wordmark.</p>
@@ -580,6 +609,30 @@ async function renderGeneralSettings() {
           </div>
         </form>
       </div>
+    </div>
+  `;
+
+  document.getElementById('form-instance').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await api('/general', { method: 'PUT', body: JSON.stringify({ instanceName: fd.get('instanceName'), port: fd.get('port') }) });
+      toast('Instance settings saved');
+      if (fd.get('instanceName') !== window.NYARR_INSTANCE_NAME) {
+        window.NYARR_INSTANCE_NAME = fd.get('instanceName');
+        document.title = fd.get('instanceName');
+        document.getElementById('brandWord').textContent = fd.get('instanceName');
+      }
+    } catch (err) { toast(err.message, 'error'); }
+  });
+}
+
+// ---- Library category ----
+
+async function renderLibraryCategory() {
+  const g = await api('/general');
+  $content.innerHTML = `
+    <div class="settings-grid">
 
       <div class="settings-card">
         <h3>Library location</h3>
@@ -598,6 +651,67 @@ async function renderGeneralSettings() {
         </form>
         <p class="inline-note">To relocate nyarr's own database (tag sets, settings, activity log) rather than just the downloaded files, set the <span class="mono">NYARR_DATA_DIR</span> environment variable before starting the app — see the README.</p>
       </div>
+
+      <div class="settings-card">
+        <h3>Library import</h3>
+        <p class="hint">Already have a folder of booru images? Point nyarr at it to register them in the library without re-downloading. Files elsewhere on disk are referenced in place; files already inside the library root are adopted the same as a normal download.</p>
+        <div class="form-row">
+          <label>Folder to scan</label>
+          <div class="input-with-btn">
+            <input id="importPathInput" placeholder="/path/to/existing/images" />
+            <button type="button" class="btn btn-sm" id="browseImportPath">Browse…</button>
+          </div>
+        </div>
+        <div class="settings-card-footer">
+          <button type="button" class="btn btn-primary btn-sm" id="runImportBtn">Scan &amp; import</button>
+        </div>
+        <div class="import-result" id="importResult"></div>
+      </div>
+
+    </div>
+  `;
+
+  document.getElementById('form-library').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await api('/general', { method: 'PUT', body: JSON.stringify({ libraryRoot: fd.get('libraryRoot') }) });
+      toast('Library root saved');
+    } catch (err) { toast(err.message, 'error'); }
+  });
+  document.getElementById('browseLibraryRoot').addEventListener('click', () => {
+    openFolderBrowser(document.getElementById('libraryRootInput').value, (chosen) => {
+      document.getElementById('libraryRootInput').value = chosen;
+    });
+  });
+
+  document.getElementById('browseImportPath').addEventListener('click', () => {
+    openFolderBrowser(document.getElementById('importPathInput').value || g.libraryRoot, (chosen) => {
+      document.getElementById('importPathInput').value = chosen;
+    });
+  });
+  document.getElementById('runImportBtn').addEventListener('click', async () => {
+    const importPath = document.getElementById('importPathInput').value.trim();
+    const resultEl = document.getElementById('importResult');
+    if (!importPath) { toast('Enter a folder to scan first', 'error'); return; }
+    resultEl.innerHTML = '<span class="spinner"></span> Scanning…';
+    try {
+      const result = await api('/library/import', { method: 'POST', body: JSON.stringify({ path: importPath }) });
+      resultEl.textContent = `Scanned ${result.scanned} file(s): imported ${result.imported}, skipped ${result.skipped} (already in library).`;
+      if (result.imported > 0) toast(`Imported ${result.imported} file(s)`);
+    } catch (err) {
+      resultEl.textContent = '';
+      toast(err.message, 'error');
+    }
+  });
+}
+
+// ---- Security category ----
+
+async function renderSecurityCategory() {
+  const g = await api('/general');
+  $content.innerHTML = `
+    <div class="settings-grid">
 
       <div class="settings-card">
         <h3>Authentication</h3>
@@ -641,62 +755,8 @@ async function renderGeneralSettings() {
         </div>
       </div>
 
-      <div class="settings-card">
-        <h3>Backup &amp; restore</h3>
-        <p class="hint">Download everything (tag sets, settings, library records) as a single JSON file, or restore from one.</p>
-        <div class="action-row">
-          <button class="btn btn-sm" id="downloadBackup">Download backup</button>
-          <input type="file" id="restoreFileInput" accept="application/json" style="display:none" />
-          <button class="btn btn-sm" id="restoreBackupBtn">Restore from file…</button>
-        </div>
-      </div>
-
-      <div class="settings-card">
-        <h3>Library import</h3>
-        <p class="hint">Already have a folder of booru images? Point nyarr at it to register them in the library without re-downloading. Files elsewhere on disk are referenced in place; files already inside the library root are adopted the same as a normal download.</p>
-        <div class="form-row">
-          <label>Folder to scan</label>
-          <div class="input-with-btn">
-            <input id="importPathInput" placeholder="/path/to/existing/images" />
-            <button type="button" class="btn btn-sm" id="browseImportPath">Browse…</button>
-          </div>
-        </div>
-        <div class="settings-card-footer">
-          <button type="button" class="btn btn-primary btn-sm" id="runImportBtn">Scan &amp; import</button>
-        </div>
-        <div class="import-result" id="importResult"></div>
-      </div>
-
     </div>
   `;
-
-  document.getElementById('form-instance').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    try {
-      await api('/general', { method: 'PUT', body: JSON.stringify({ instanceName: fd.get('instanceName'), port: fd.get('port') }) });
-      toast('Instance settings saved');
-      if (fd.get('instanceName') !== window.NYARR_INSTANCE_NAME) {
-        window.NYARR_INSTANCE_NAME = fd.get('instanceName');
-        document.title = fd.get('instanceName');
-        document.getElementById('brandWord').textContent = fd.get('instanceName');
-      }
-    } catch (err) { toast(err.message, 'error'); }
-  });
-
-  document.getElementById('form-library').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    try {
-      await api('/general', { method: 'PUT', body: JSON.stringify({ libraryRoot: fd.get('libraryRoot') }) });
-      toast('Library root saved');
-    } catch (err) { toast(err.message, 'error'); }
-  });
-  document.getElementById('browseLibraryRoot').addEventListener('click', () => {
-    openFolderBrowser(document.getElementById('libraryRootInput').value, (chosen) => {
-      document.getElementById('libraryRootInput').value = chosen;
-    });
-  });
 
   const authSelect = document.getElementById('authMethodSelect');
   authSelect.addEventListener('change', () => {
@@ -729,6 +789,24 @@ async function renderGeneralSettings() {
       toast('API key regenerated');
     } catch (err) { toast(err.message, 'error'); }
   });
+}
+
+// ---- Backup & restore category ----
+
+async function renderBackupCategory() {
+  $content.innerHTML = `
+    <div class="settings-grid">
+      <div class="settings-card">
+        <h3>Backup &amp; restore</h3>
+        <p class="hint">Download everything (tag sets, settings, library records) as a single JSON file, or restore from one.</p>
+        <div class="action-row">
+          <button class="btn btn-sm" id="downloadBackup">Download backup</button>
+          <input type="file" id="restoreFileInput" accept="application/json" style="display:none" />
+          <button class="btn btn-sm" id="restoreBackupBtn">Restore from file…</button>
+        </div>
+      </div>
+    </div>
+  `;
 
   document.getElementById('downloadBackup').addEventListener('click', async () => {
     try {
@@ -765,26 +843,6 @@ async function renderGeneralSettings() {
       toast(`Restore failed: ${err.message}`, 'error');
     }
     e.target.value = '';
-  });
-
-  document.getElementById('browseImportPath').addEventListener('click', () => {
-    openFolderBrowser(document.getElementById('importPathInput').value || g.libraryRoot, (chosen) => {
-      document.getElementById('importPathInput').value = chosen;
-    });
-  });
-  document.getElementById('runImportBtn').addEventListener('click', async () => {
-    const importPath = document.getElementById('importPathInput').value.trim();
-    const resultEl = document.getElementById('importResult');
-    if (!importPath) { toast('Enter a folder to scan first', 'error'); return; }
-    resultEl.innerHTML = '<span class="spinner"></span> Scanning…';
-    try {
-      const result = await api('/library/import', { method: 'POST', body: JSON.stringify({ path: importPath }) });
-      resultEl.textContent = `Scanned ${result.scanned} file(s): imported ${result.imported}, skipped ${result.skipped} (already in library).`;
-      if (result.imported > 0) toast(`Imported ${result.imported} file(s)`);
-    } catch (err) {
-      resultEl.textContent = '';
-      toast(err.message, 'error');
-    }
   });
 }
 
