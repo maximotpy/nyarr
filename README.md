@@ -10,9 +10,9 @@ Supports **Danbooru**, **Gelbooru**, **e621**, and **Rule34**.
 
 ## Documentation
 
-- [User guide](docs/USAGE.md) — installation, configuration, and day to
+- [User guide](docs/USAGE.md) - installation, configuration, and day to
   day use.
-- [API reference](docs/API.md) — every HTTP endpoint, request and
+- [API reference](docs/API.md) - every HTTP endpoint, request and
   response shapes, authentication.
 
 ## Quick start
