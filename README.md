@@ -6,7 +6,7 @@ matching posts, and optionally auto-downloads them to disk. The mental
 model is the same as Sonarr/Radarr, but the "series" is a tag search
 instead of a TV show.
 
-Supports **Danbooru**, **Gelbooru**, **e621**, and **Rule34**.
+Supports **Danbooru**, **Gelbooru**, **e621**, and **Rule34**  and others.
 
 ## Documentation
 
