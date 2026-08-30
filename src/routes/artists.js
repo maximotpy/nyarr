@@ -19,7 +19,7 @@ router.get('/artists', (req, res) => {
 });
 
 router.post('/artists', (req, res) => {
-    const { name, artistTag, ratingFilter, minScore, intervalMinutes, autoDownload, enabled, maxPages } = req.body;
+    const { name, artistTag, alsoSearchNameAsTag, ratingFilter, minScore, intervalMinutes, autoDownload, enabled, maxPages } = req.body;
     if (!name || !artistTag) {
         return res.status(400).json({ error: 'name and artistTag are required' });
     }
@@ -29,6 +29,10 @@ router.post('/artists', (req, res) => {
         // The booru artist tag to search for, e.g. "wlop". Searched on every
         // indexer at once — unlike tag sets, which are pinned to one source.
         artistTag,
+        // Also search the display name as a plain tag. Some boorus don't file
+        // everything under the artist tag but credit the artist as a regular
+        // tag (or a differently-spelled variant), so this widens the net.
+        alsoSearchNameAsTag: Boolean(alsoSearchNameAsTag),
         ratingFilter: ratingFilter || 'safe_questionable',
         minScore: Number(minScore) || 0,
         intervalMinutes: Number(intervalMinutes) || 60,
@@ -51,7 +55,7 @@ router.put('/artists/:id', (req, res) => {
     const id = Number(req.params.id);
     const artist = db.data.artists.find((a) => a.id === id);
     if (!artist) return res.status(404).json({ error: 'Not found' });
-    const fields = ['name', 'artistTag', 'ratingFilter', 'minScore', 'intervalMinutes', 'autoDownload', 'enabled', 'maxPages'];
+    const fields = ['name', 'artistTag', 'alsoSearchNameAsTag', 'ratingFilter', 'minScore', 'intervalMinutes', 'autoDownload', 'enabled', 'maxPages'];
     for (const f of fields) {
         if (req.body[f] !== undefined) artist[f] = req.body[f];
     }

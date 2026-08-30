@@ -667,7 +667,7 @@ function artistCard(a) {
         <span class="tagset-name">${esc(a.name)}</span>
         <span class="source-badge">Configured indexers</span>
       </div>
-      <div class="tag-pills"><span class="tag-pill">${esc(a.artistTag)}</span></div>
+      <div class="tag-pills"><span class="tag-pill">${esc(a.artistTag)}</span>${a.alsoSearchNameAsTag ? `<span class="tag-pill">+ "${esc(a.name)}" as tag</span>` : ''}</div>
       <div class="tagset-meta">
         <span>${a.postCount} indexed · ${a.downloadedCount} downloaded</span>
         <span>Every ${a.intervalMinutes}m</span>
@@ -703,6 +703,11 @@ function artistFormHtml(a) {
         <label>Artist tag (booru syntax)</label>
         <input name="artistTag" required placeholder="e.g. wlop" value="${esc(a?.artistTag || '')}" />
       </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="alsoSearchNameAsTag" name="alsoSearchNameAsTag" ${a?.alsoSearchNameAsTag ? 'checked' : ''} />
+        <label for="alsoSearchNameAsTag">Also search the display name as a regular tag</label>
+      </div>
+      <p class="hint" style="margin:-4px 0 14px">Some boorus don't file everything under the artist tag but credit the artist as a plain tag — enable this to search both.</p>
       <div class="form-row">
         <label>Rating filter</label>
         <select name="ratingFilter">
@@ -746,6 +751,7 @@ function openArtistModal(a) {
     const payload = {
       name: fd.get('name').trim(),
       artistTag: fd.get('artistTag').trim(),
+      alsoSearchNameAsTag: fd.get('alsoSearchNameAsTag') === 'on',
       ratingFilter: fd.get('ratingFilter'),
       minScore: Number(fd.get('minScore')) || 0,
       intervalMinutes: Number(fd.get('intervalMinutes')) || 60,

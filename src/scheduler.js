@@ -184,6 +184,17 @@ async function runArtist(artist, { manual = false } = {}) {
     return { seen: 0, inserted: 0, perSource: [], errors: [artist.lastError] };
   }
 
+  // Search terms for this watch: always the artist tag, plus the display
+  // name as a plain tag when alsoSearchNameAsTag is on (some boorus credit
+  // the artist as a regular tag rather than under the artist tag namespace).
+  // Both terms share the same per-source page cursor — the cursor tracks
+  // how far we've walked the combined result stream, and the md5/id dedupe
+  // below absorbs any overlap between the two searches.
+  const searchTerms = [artist.artistTag];
+  if (artist.alsoSearchNameAsTag && artist.name && artist.name !== artist.artistTag) {
+    searchTerms.push(artist.name);
+  }
+
   for (const id of sources) {
     const indexer = indexers.get(id);
     const credentials = db.data.settings[id] || {};
@@ -193,63 +204,65 @@ async function runArtist(artist, { manual = false } = {}) {
     let sourceInserted = 0;
 
     try {
-      for (let page = startPage; page < startPage + pagesToWalk; page++) {
-        if (page > startPage) await sleep(PAGE_DELAY_MS);
-        const results = await indexer.search({
-          tags: artist.artistTag,
-          page,
-          limit: PAGE_LIMIT,
-          credentials
-        });
-        seen += results.length;
-        lastPageWalked = page;
-        if (results.length < PAGE_LIMIT) hitEmptyPage = true;
-        if (results.length === 0) break;
+      for (const term of searchTerms) {
+        for (let page = startPage; page < startPage + pagesToWalk; page++) {
+          if (page > startPage) await sleep(PAGE_DELAY_MS);
+          const results = await indexer.search({
+            tags: term,
+            page,
+            limit: PAGE_LIMIT,
+            credentials
+          });
+          seen += results.length;
+          lastPageWalked = page;
+          if (results.length < PAGE_LIMIT) hitEmptyPage = true;
+          if (results.length === 0) break;
 
-        for (const post of results) {
-          if (!ratingAllowed(post.rating, artist.ratingFilter)) continue;
-          if ((post.score ?? 0) < (artist.minScore ?? 0)) continue;
+          for (const post of results) {
+            if (!ratingAllowed(post.rating, artist.ratingFilter)) continue;
+            if ((post.score ?? 0) < (artist.minScore ?? 0)) continue;
 
-          // Dedupe across sources by md5 too — the same artwork is often
-          // reposted on multiple boorus, and we only want one library entry.
-          const dupeById = db.data.posts.find(
-            (p) => p.source === id && p.sourcePostId === post.sourcePostId
-          );
-          const dupeByHash = post.md5 && db.data.posts.find((p) => p.md5 === post.md5);
-          if (dupeById || dupeByHash) continue;
+            // Dedupe across sources by md5 too — the same artwork is often
+            // reposted on multiple boorus, and we only want one library entry.
+            const dupeById = db.data.posts.find(
+              (p) => p.source === id && p.sourcePostId === post.sourcePostId
+            );
+            const dupeByHash = post.md5 && db.data.posts.find((p) => p.md5 === post.md5);
+            if (dupeById || dupeByHash) continue;
 
-          const record = {
-            id: db.nextId(db.data.posts),
-            source: id,
-            sourcePostId: post.sourcePostId,
-            sourcePageUrl: post.sourcePageUrl,
-            artistId: artist.id,
-            tagSetId: null,
-            tags: post.tags,
-            rating: post.rating,
-            score: post.score,
-            fileUrl: post.fileUrl,
-            previewUrl: post.previewUrl,
-            width: post.width,
-            height: post.height,
-            md5: post.md5,
-            ext: post.ext,
-            postedAt: post.postedAt,
-            status: 'new',
-            filePath: null,
-            addedAt: new Date().toISOString()
-          };
-          db.data.posts.push(record);
-          inserted++;
-          sourceInserted++;
+            const record = {
+              id: db.nextId(db.data.posts),
+              source: id,
+              sourcePostId: post.sourcePostId,
+              sourcePageUrl: post.sourcePageUrl,
+              artistId: artist.id,
+              tagSetId: null,
+              tags: post.tags,
+              rating: post.rating,
+              score: post.score,
+              fileUrl: post.fileUrl,
+              previewUrl: post.previewUrl,
+              width: post.width,
+              height: post.height,
+              md5: post.md5,
+              ext: post.ext,
+              postedAt: post.postedAt,
+              status: 'new',
+              filePath: null,
+              addedAt: new Date().toISOString()
+            };
+            db.data.posts.push(record);
+            inserted++;
+            sourceInserted++;
 
-          if (artist.autoDownload && record.fileUrl) {
-            enqueueDownload(record.id);
+            if (artist.autoDownload && record.fileUrl) {
+              enqueueDownload(record.id);
+            }
           }
+          // Recurring catch-up runs only need page 1 per source once the
+          // backfill has completed for that source.
+          if (!isFirstRun && hitEmptyPage) break;
         }
-        // Recurring catch-up runs only need page 1 per source once the
-        // backfill has completed for that source.
-        if (!isFirstRun && hitEmptyPage) break;
       }
 
       // Track per-source backfill position: once a source hits a short
