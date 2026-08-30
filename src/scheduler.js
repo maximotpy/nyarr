@@ -18,8 +18,11 @@ const ABSOLUTE_MAX_PAGES = 100;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function runTagSet(tagSet, { manual = false } = {}) {
-  const indexer = indexers.get(tagSet.source);
-  const credentials = db.data.settings[tagSet.source] || {};
+  // A tag set can watch one or several indexers. Older tag sets only have
+  // the legacy `source` field, normalize it into a list.
+  const sourceIds = Array.isArray(tagSet.sources) && tagSet.sources.length
+    ? tagSet.sources
+    : [tagSet.source];
   const isFirstRun = !tagSet.lastChecked;
 
   // Page budget for this run:
@@ -28,7 +31,7 @@ async function runTagSet(tagSet, { manual = false } = {}) {
   //  - otherwise first runs backfill INITIAL_BACKFILL_PAGES and recurring
   //    checks walk 1 page... unless the previous run hit its budget, in
   //    which case keep walking (the tag has more history than one pass
-  //    could reach — see tagSet.backfillComplete below).
+  //    could reach, see tagSet.backfillComplete below).
   // Capped tag sets (explicit maxPages) resume from where the previous
   // run stopped via backfillCursor, so successive runs eventually cover
   // the whole history instead of re-reading page 1 forever.
@@ -49,9 +52,74 @@ async function runTagSet(tagSet, { manual = false } = {}) {
     pagesToWalk = ABSOLUTE_MAX_PAGES;
   }
   // A single-page catch-up run (backfill already done) shouldn't flip the
-  // flag back to incomplete just because page 1 came back full — new posts
+  // flag back to incomplete just because page 1 came back full, new posts
   // naturally fill it. Only actual backfill runs can clear the flag.
   const isCatchUpRun = !isFirstRun && tagSet.backfillComplete && pagesToWalk === 1;
+
+  let inserted = 0;
+  let seen = 0;
+  const perSource = [];
+  const errors = [];
+
+  try {
+    for (const sourceId of sourceIds) {
+      const result = await runTagSetOnSource(tagSet, sourceId, { manual, isFirstRun });
+      inserted += result.inserted;
+      seen += result.seen;
+      perSource.push({ source: sourceId, inserted: result.inserted, seen: result.seen });
+      if (result.error) errors.push(`${sourceId}: ${result.error}`);
+    }
+
+    tagSet.lastChecked = new Date().toISOString();
+    tagSet.lastError = errors.length
+      ? `${errors.length}/${sourceIds.length} source(s) failed: ${errors.map((e) => e.split(':')[0]).join(', ')}`
+      : null;
+    db.persist();
+
+    if (inserted > 0 || manual) {
+      db.logActivity(
+        `"${tagSet.name}" (${sourceIds.join(', ')}): checked ${seen} post(s), found ${inserted} new` +
+        (errors.length ? `, ${errors.length}/${sourceIds.length} source(s) errored` : ''),
+        inserted > 0 ? 'success' : 'info'
+      );
+    }
+  } catch (err) {
+    tagSet.lastChecked = new Date().toISOString();
+    tagSet.lastError = err.message;
+    db.persist();
+    db.logActivity(`"${tagSet.name}" failed: ${err.message}`, 'error');
+    throw err;
+  }
+
+  return { seen, inserted, perSource, errors };
+}
+
+// Run one tag set against a single indexer. Each source keeps its own
+// backfill cursor/flag so a multi-source tag set backfills each booru
+// independently (tagSet.backfillCursors[sourceId]).
+async function runTagSetOnSource(tagSet, sourceId, { manual, isFirstRun }) {
+  const indexer = indexers.get(sourceId);
+  const credentials = db.data.settings[sourceId] || {};
+  const cursors = tagSet.backfillCursors || (tagSet.backfillCursors = {});
+  const state = cursors[sourceId] || (cursors[sourceId] = { complete: false, cursor: 1 });
+
+  // Page budget for this run (same policy as before, but per source):
+  let startPage = 1;
+  let pagesToWalk;
+  if (tagSet.maxPages !== undefined && tagSet.maxPages !== null) {
+    pagesToWalk = tagSet.maxPages === 0 ? ABSOLUTE_MAX_PAGES : Math.min(tagSet.maxPages, ABSOLUTE_MAX_PAGES);
+    if (!isFirstRun && !state.complete) {
+      startPage = Math.max(1, state.cursor || 1);
+    }
+  } else if (isFirstRun) {
+    pagesToWalk = INITIAL_BACKFILL_PAGES;
+  } else if (state.complete) {
+    pagesToWalk = 1;
+  } else {
+    startPage = Math.max(1, state.cursor || 1);
+    pagesToWalk = ABSOLUTE_MAX_PAGES;
+  }
+  const isCatchUpRun = !isFirstRun && state.complete && pagesToWalk === 1;
 
   let inserted = 0;
   let seen = 0;
@@ -69,8 +137,6 @@ async function runTagSet(tagSet, { manual = false } = {}) {
       });
       seen += results.length;
       lastPageWalked = page;
-      // A short page means we've walked past the end of this tag's
-      // history — no point requesting further pages.
       if (results.length < PAGE_LIMIT) hitEmptyPage = true;
       if (results.length === 0) break;
 
@@ -79,14 +145,14 @@ async function runTagSet(tagSet, { manual = false } = {}) {
         if ((post.score ?? 0) < (tagSet.minScore ?? 0)) continue;
 
         const dupeById = db.data.posts.find(
-          (p) => p.source === tagSet.source && p.sourcePostId === post.sourcePostId
+          (p) => p.source === sourceId && p.sourcePostId === post.sourcePostId
         );
         const dupeByHash = post.md5 && db.data.posts.find((p) => p.md5 === post.md5);
         if (dupeById || dupeByHash) continue;
 
         const record = {
           id: db.nextId(db.data.posts),
-          source: tagSet.source,
+          source: sourceId,
           sourcePostId: post.sourcePostId,
           sourcePageUrl: post.sourcePageUrl,
           tagSetId: tagSet.id,
@@ -111,39 +177,19 @@ async function runTagSet(tagSet, { manual = false } = {}) {
           enqueueDownload(record.id);
         }
       }
-      // Stop walking further back if this page had nothing new at all
-      // (recurring checks only need to reach previously-seen territory).
-      if (!isFirstRun && tagSet.backfillComplete) break;
+      if (!isFirstRun && state.complete) break;
     }
 
-    // Remember whether the full history has been reached: once a run ends
-    // on a short/empty page, later recurring checks only need 1 page to
-    // catch new posts. If we ran out of budget instead, the next run
-    // resumes the backfill from where this one stopped.
     if (!isCatchUpRun) {
-      tagSet.backfillComplete = hitEmptyPage;
-      tagSet.backfillCursor = hitEmptyPage ? 1 : lastPageWalked + 1;
+      state.complete = hitEmptyPage;
+      state.cursor = hitEmptyPage ? 1 : lastPageWalked + 1;
     }
 
-    tagSet.lastChecked = new Date().toISOString();
-    tagSet.lastError = null;
-    db.persist();
-
-    if (inserted > 0 || manual) {
-      db.logActivity(
-        `"${tagSet.name}" (${indexer.label}): checked ${seen} post(s), found ${inserted} new`,
-        inserted > 0 ? 'success' : 'info'
-      );
-    }
+    return { seen, inserted, error: null };
   } catch (err) {
-    tagSet.lastChecked = new Date().toISOString();
-    tagSet.lastError = err.message;
-    db.persist();
-    db.logActivity(`"${tagSet.name}" (${indexer.label}) failed: ${err.message}`, 'error');
-    throw err;
+    // One failing source shouldn't abort the others, report and continue.
+    return { seen, inserted, error: err.message };
   }
-
-  return { seen, inserted };
 }
 
 // Artist watches are like tag sets, but instead of being pinned to a single
@@ -179,7 +225,7 @@ async function runArtist(artist, { manual = false } = {}) {
   const sources = indexers.configuredIds();
   if (!sources.length) {
     artist.lastChecked = new Date().toISOString();
-    artist.lastError = 'No indexers configured — add at least one in Settings → Indexers';
+    artist.lastError = 'No indexers configured, add at least one in Settings → Indexers';
     db.persist();
     return { seen: 0, inserted: 0, perSource: [], errors: [artist.lastError] };
   }
@@ -187,7 +233,7 @@ async function runArtist(artist, { manual = false } = {}) {
   // Search terms for this watch: always the artist tag, plus the display
   // name as a plain tag when alsoSearchNameAsTag is on (some boorus credit
   // the artist as a regular tag rather than under the artist tag namespace).
-  // Both terms share the same per-source page cursor — the cursor tracks
+  // Both terms share the same per-source page cursor, the cursor tracks
   // how far we've walked the combined result stream, and the md5/id dedupe
   // below absorbs any overlap between the two searches.
   const searchTerms = [artist.artistTag];
@@ -222,7 +268,7 @@ async function runArtist(artist, { manual = false } = {}) {
             if (!ratingAllowed(post.rating, artist.ratingFilter)) continue;
             if ((post.score ?? 0) < (artist.minScore ?? 0)) continue;
 
-            // Dedupe across sources by md5 too — the same artwork is often
+            // Dedupe across sources by md5 too, the same artwork is often
             // reposted on multiple boorus, and we only want one library entry.
             const dupeById = db.data.posts.find(
               (p) => p.source === id && p.sourcePostId === post.sourcePostId
@@ -279,7 +325,7 @@ async function runArtist(artist, { manual = false } = {}) {
 
   artist.pageCursors = pageCursors;
   artist.lastChecked = new Date().toISOString();
-  // Keep the stored error short — full per-source details are returned to
+  // Keep the stored error short, full per-source details are returned to
   // the caller and shown in the UI; a giant HTML blob in db.json helps nobody.
   artist.lastError = errors.length
     ? `${errors.length}/${sources.length} source(s) failed: ${errors.map((e) => e.split(':')[0]).join(', ')}`
@@ -289,7 +335,7 @@ async function runArtist(artist, { manual = false } = {}) {
   if (inserted > 0 || manual) {
     db.logActivity(
       `"${artist.name}" (all indexers): checked ${seen} post(s), found ${inserted} new` +
-      (errors.length ? ` — ${errors.length}/${perSource.length} source(s) errored` : ''),
+      (errors.length ? `, ${errors.length}/${perSource.length} source(s) errored` : ''),
       errors.length && inserted === 0 ? 'warn' : inserted > 0 ? 'success' : 'info'
     );
   }

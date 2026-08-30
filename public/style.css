@@ -195,7 +195,11 @@ button {
 
 .content {
   padding: 24px 24px 60px;
-  max-width: 1280px;
+  /* Fill the actual screen width instead of being capped narrower than
+     the viewport, wide image grids were wasting the sides of the screen. */
+  max-width: none;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 /* ---------- Buttons ---------- */
@@ -378,6 +382,87 @@ button {
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+/* ---------- Multi-source picker (tag set form) ---------- */
+.source-picker {
+  position: relative;
+}
+
+.source-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  padding: 3px 6px 3px 9px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev, rgba(255, 255, 255, 0.04));
+}
+
+.chip-remove {
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.chip-remove:hover {
+  color: var(--danger);
+}
+
+.source-add-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.source-add-btn {
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 9px;
+}
+
+.source-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 50;
+  min-width: 220px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--bg-panel, #16181d);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+}
+
+.source-option {
+  border: none;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.source-option:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.source-option .hint {
+  font-size: 10px;
+  opacity: 0.6;
 }
 
 .tag-pills {
@@ -584,6 +669,86 @@ button {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 10px;
+}
+
+/* Display-mode presets chosen from the "View" dropdown in the library
+   filter bar. Each grid preset just changes the minimum thumbnail width, auto-fill keeps the grid stretching edge-to-edge at any screen size. */
+.library-grid.view-grid-sm {
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+}
+
+.library-grid.view-grid-md {
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+}
+
+.library-grid.view-grid-lg {
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+
+.library-grid.view-grid-xl {
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+}
+
+/* Dense row layout: small fixed thumb, metadata inline, actions right. */
+.library-grid.view-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.post-card-list {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+}
+
+.post-card-list .list-thumb {
+  width: 72px;
+  height: 72px;
+  aspect-ratio: auto;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.post-card-list .post-body {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+}
+
+.post-card-list .post-tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.post-card-list .post-actions {
+  margin-top: 0;
+  flex-shrink: 0;
+  align-items: center;
+  position: relative;
+}
+
+.post-card-list .batch-check {
+  position: static;
+  width: 16px;
+  height: 16px;
+}
+
+.post-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.post-score {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent);
+  white-space: nowrap;
 }
 
 .post-card {

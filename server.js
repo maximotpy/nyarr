@@ -100,7 +100,7 @@ function wantsHtml(req) {
 }
 
 // ---- Auth gate (protects everything, UI + API) ----
-// Optional — off by default. Toggle from Settings -> General.
+// Optional, off by default. Toggle from Settings -> General.
 function authMiddleware(req, res, next) {
   const g = db.data.general;
 
@@ -151,7 +151,7 @@ app.post('/setup', express.urlencoded({ extended: false }), (req, res) => {
   g.passwordSalt = generateSalt();
   g.passwordHash = hashPassword(password, g.passwordSalt);
   db.persist();
-  db.logActivity(`Account created for "${username}" — authentication enabled`);
+  db.logActivity(`Account created for "${username}", authentication enabled`);
 
   // Log the user straight in
   const expiresAt = Date.now() + SESSION_TTL_MS;

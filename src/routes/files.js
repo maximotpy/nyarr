@@ -7,7 +7,7 @@ const { currentLibraryRoot } = require('../downloader');
 const router = express.Router();
 
 // Deliberately looks files up by post ID rather than accepting a raw path
-// in the URL — that keeps this route from being a path-traversal vector
+// in the URL, that keeps this route from being a path-traversal vector
 // even though library imports can point at arbitrary folders on disk.
 router.get('/library-files/:id', (req, res) => {
   const post = db.data.posts.find((p) => p.id === Number(req.params.id));

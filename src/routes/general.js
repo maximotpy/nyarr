@@ -75,7 +75,7 @@ router.put('/general', (req, res) => {
 router.post('/general/regenerate-api-key', (req, res) => {
   db.data.general.apiKey = generateApiKey();
   db.persist();
-  db.logActivity('API key regenerated — any external API clients will need the new key');
+  db.logActivity('API key regenerated, any external API clients will need the new key');
   res.json({ apiKey: db.data.general.apiKey });
 });
 

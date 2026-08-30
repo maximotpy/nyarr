@@ -18,14 +18,21 @@ router.get('/tagsets', (req, res) => {
 });
 
 router.post('/tagsets', (req, res) => {
-  const { name, source, tags, ratingFilter, minScore, intervalMinutes, autoDownload, enabled, maxPages } = req.body;
-  if (!name || !source || !tags) {
-    return res.status(400).json({ error: 'name, source and tags are required' });
+  const { name, tags, ratingFilter, minScore, intervalMinutes, autoDownload, enabled, maxPages } = req.body;
+  // A tag set can watch several indexers at once. Accept either a `sources`
+  // array or the legacy single `source` string for backward compatibility.
+  let sources = Array.isArray(req.body.sources)
+    ? req.body.sources.filter(Boolean)
+    : (req.body.source ? [req.body.source] : []);
+  sources = [...new Set(sources)];
+  if (!name || !sources.length || !tags) {
+    return res.status(400).json({ error: 'name, at least one source, and tags are required' });
   }
   const tagSet = {
     id: db.nextId(db.data.tagSets),
     name,
-    source,
+    sources,
+    source: sources[0], // legacy field kept for older code paths
     tags,
     ratingFilter: ratingFilter || 'safe_questionable',
     minScore: Number(minScore) || 0,
@@ -41,7 +48,7 @@ router.post('/tagsets', (req, res) => {
   };
   db.data.tagSets.push(tagSet);
   db.persist();
-  db.logActivity(`Created tag set "${tagSet.name}" (${tagSet.source})`);
+  db.logActivity(`Created tag set "${tagSet.name}" (${tagSet.sources.join(', ')})`);
   res.status(201).json(withCounts(tagSet));
 });
 
@@ -49,9 +56,13 @@ router.put('/tagsets/:id', (req, res) => {
   const id = Number(req.params.id);
   const tagSet = db.data.tagSets.find((t) => t.id === id);
   if (!tagSet) return res.status(404).json({ error: 'Not found' });
-  const fields = ['name', 'source', 'tags', 'ratingFilter', 'minScore', 'intervalMinutes', 'autoDownload', 'enabled', 'maxPages'];
+  const fields = ['name', 'sources', 'tags', 'ratingFilter', 'minScore', 'intervalMinutes', 'autoDownload', 'enabled', 'maxPages'];
   for (const f of fields) {
     if (req.body[f] !== undefined) tagSet[f] = req.body[f];
+  }
+  if (Array.isArray(tagSet.sources)) {
+    tagSet.sources = [...new Set(tagSet.sources.filter(Boolean))];
+    tagSet.source = tagSet.sources[0]; // keep legacy field in sync
   }
   db.persist();
   res.json(withCounts(tagSet));
@@ -80,10 +91,10 @@ router.post('/tagsets/:id/search-now', async (req, res) => {
 });
 
 // Batch operations on tag sets. Body: { action, ids }
-//   action: 'enable' | 'disable' — flip the enabled flag
-//   action: 'search'             — run search-now on each (fire-and-forget;
+//   action: 'enable' | 'disable', flip the enabled flag
+//   action: 'search', run search-now on each (fire-and-forget;
 //           results land in the activity feed as each run finishes)
-//   action: 'delete'             — remove the tag sets (downloads are kept)
+//   action: 'delete', remove the tag sets (downloads are kept)
 router.post('/tagsets/batch', async (req, res) => {
   const { action, ids } = req.body || {};
   if (!Array.isArray(ids) || !ids.length) {
@@ -101,7 +112,7 @@ router.post('/tagsets/batch', async (req, res) => {
   }
 
   if (action === 'search') {
-    // Kick every run off without awaiting — a full backfill on several tag
+    // Kick every run off without awaiting, a full backfill on several tag
     // sets can take minutes, and the HTTP request shouldn't hang on it.
     targets.forEach((t) => {
       scheduler.runTagSet(t, { manual: true }).catch(() => { /* logged inside */ });
@@ -120,7 +131,7 @@ router.post('/tagsets/batch', async (req, res) => {
     return res.json({ ok: true, deleted: targets.length });
   }
 
-  return res.status(400).json({ error: 'Unknown action — use enable, disable, search or delete' });
+  return res.status(400).json({ error: 'Unknown action, use enable, disable, search or delete' });
 });
 
 module.exports = router;

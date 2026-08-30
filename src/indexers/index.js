@@ -42,7 +42,7 @@ function get(id) {
 
 // Ids of indexers the user has actually added (i.e. entered credentials for)
 // in Settings → Indexers. Fields that ship pre-filled by default (baseUrl,
-// default user agents) don't count — only real credentials do. Used by
+// default user agents) don't count, only real credentials do. Used by
 // artist watches so they only hit sources the user opted into, instead of
 // blindly querying all 12 boorus and collecting a wall of 401/404 errors.
 function configuredIds() {

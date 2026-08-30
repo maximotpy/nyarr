@@ -27,7 +27,7 @@ router.post('/artists', (req, res) => {
         id: db.nextId(db.data.artists),
         name,
         // The booru artist tag to search for, e.g. "wlop". Searched on every
-        // indexer at once — unlike tag sets, which are pinned to one source.
+        // indexer at once, unlike tag sets, which are pinned to one source.
         artistTag,
         // Also search the display name as a plain tag. Some boorus don't file
         // everything under the artist tag but credit the artist as a regular
@@ -86,9 +86,9 @@ router.post('/artists/:id/search-now', async (req, res) => {
 });
 
 // Batch operations on artist watches. Body: { action, ids }
-//   action: 'enable' | 'disable' — flip the enabled flag
-//   action: 'search'             — run search-now on each (fire-and-forget)
-//   action: 'delete'             — remove the watches (downloads are kept)
+//   action: 'enable' | 'disable', flip the enabled flag
+//   action: 'search', run search-now on each (fire-and-forget)
+//   action: 'delete', remove the watches (downloads are kept)
 router.post('/artists/batch', async (req, res) => {
     const { action, ids } = req.body || {};
     if (!Array.isArray(ids) || !ids.length) {
@@ -123,10 +123,10 @@ router.post('/artists/batch', async (req, res) => {
         return res.json({ ok: true, deleted: targets.length });
     }
 
-    return res.status(400).json({ error: 'Unknown action — use enable, disable, search or delete' });
+    return res.status(400).json({ error: 'Unknown action, use enable, disable, search or delete' });
 });
 
-// Quick "does this artist exist on which indexers?" probe — searches page 1
+// Quick "does this artist exist on which indexers?" probe, searches page 1
 // with a tiny limit on every *configured* indexer in parallel and reports
 // per-source result counts. Useful when adding an artist to see where they
 // post. Unconfigured sources are skipped (they'd just 401/404).

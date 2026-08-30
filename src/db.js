@@ -5,7 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 // Where the app's own state (db.json) lives. Override with NYARR_DATA_DIR
-// to relocate the whole app database — e.g. onto a persistent volume in
+// to relocate the whole app database, e.g. onto a persistent volume in
 // Docker, or a different drive. This has to be resolved from the
 // environment rather than from a setting *inside* db.json, since the app
 // needs to know where that file is before it can read anything from it.
@@ -21,7 +21,7 @@ const DEFAULTS = {
     instanceName: 'nyarr',
     port: 7373,
     // Where downloaded files are written. Editable at runtime via
-    // Settings → General — this is the "tell it where to store the data"
+    // Settings → General, this is the "tell it where to store the data"
     // knob, analogous to a Root Folder in Sonarr/Radarr.
     libraryRoot: DEFAULT_LIBRARY_ROOT,
     authMethod: 'none', // 'none' | 'basic'
@@ -63,7 +63,7 @@ ensureFile();
 // Make sure the default library root exists on first run (e.g. a fresh
 // clone from git, where downloads/ only contains .gitkeep). Runtime
 // changes to libraryRoot are validated/created in routes/general.js, and
-// the downloader creates per-post directories on demand — this just
+// the downloader creates per-post directories on demand, this just
 // guarantees the default folder is present at boot.
 if (!fs.existsSync(DEFAULT_LIBRARY_ROOT)) {
   fs.mkdirSync(DEFAULT_LIBRARY_ROOT, { recursive: true });

@@ -325,7 +325,7 @@ function refreshRoute() {
 // ---------- drag-to-select (rubber band) ----------
 
 // Lets the user drag a rectangle over the library grid to select every post
-// card it touches — much faster than ticking checkboxes one by one. Holding
+// card it touches, much faster than ticking checkboxes one by one. Holding
 // Shift while dragging ADDS to the existing selection instead of replacing
 // it. The overlay div is appended to <body> once and repositioned per drag.
 const $rubberBand = document.createElement('div');
@@ -449,7 +449,7 @@ async function batchTagSets(action, ids) {
   if (action === 'delete' && !confirm(`Delete ${ids.length} tag set(s)? Already-downloaded files are kept.`)) return;
   try {
     const result = await api('/tagsets/batch', { method: 'POST', body: JSON.stringify({ action, ids }) });
-    if (action === 'search') toast(`Batch search started for ${result.started} tag set(s) — results land in the activity feed`);
+    if (action === 'search') toast(`Batch search started for ${result.started} tag set(s), results land in the activity feed`);
     else toast(`Batch ${action}: ${result.affected ?? result.deleted ?? ids.length} tag set(s)`);
     batchSelection.tagsets.clear();
     renderTagSets();
@@ -460,7 +460,11 @@ async function batchTagSets(action, ids) {
 
 function tagSetCard(t) {
   const tagList = t.tags.split(' ').filter(Boolean).slice(0, 8);
-  const sourceLabel = SOURCES.find((s) => s.id === t.source)?.label || t.source;
+  const sourceIds = Array.isArray(t.sources) && t.sources.length ? t.sources : [t.source];
+  const sourceBadges = sourceIds.map((sid) => {
+    const label = SOURCES.find((s) => s.id === sid)?.label || sid;
+    return `<span class="source-badge">${esc(label)}</span>`;
+  }).join('');
   return `
   <div class="tagset-card ${t.enabled ? '' : 'disabled'}">
     ${selectionCheckbox('tagsets', t.id)}
@@ -468,7 +472,7 @@ function tagSetCard(t) {
     <div class="tagset-main">
       <div class="tagset-name-row">
         <span class="tagset-name">${esc(t.name)}</span>
-        <span class="source-badge">${esc(sourceLabel)}</span>
+        ${sourceBadges}
       </div>
       <div class="tag-pills">${tagList.map((tag) => `<span class="tag-pill">${esc(tag)}</span>`).join('')}</div>
       <div class="tagset-meta">
@@ -488,8 +492,9 @@ function tagSetCard(t) {
   </div>`;
 }
 
-function tagSetFormHtml(t) {
+function tagSetFormHtml(t, configuredSources) {
   const isEdit = Boolean(t);
+  const available = configuredSources && configuredSources.length ? configuredSources : SOURCES;
   return `
     <h2>${isEdit ? 'Edit tag set' : 'Add tag set'}</h2>
     <form id="tagSetForm">
@@ -498,10 +503,23 @@ function tagSetFormHtml(t) {
         <input name="name" required placeholder="e.g. Blue-eyed cats" value="${esc(t?.name || '')}" />
       </div>
       <div class="form-row">
-        <label>Source</label>
-        <select name="source" ${isEdit ? 'disabled' : ''}>
-          ${SOURCES.map((s) => `<option value="${s.id}" ${t?.source === s.id ? 'selected' : ''}>${s.label}</option>`).join('')}
-        </select>
+        <label>Sources</label>
+        <div class="source-picker" id="sourcePicker">
+          <div class="source-chips" id="sourceChips">
+            ${(t?.sources || (t?.source ? [t.source] : ['danbooru'])).map((sid) => {
+    const s = SOURCES.find((x) => x.id === sid);
+    return `<span class="source-chip" data-id="${sid}">${esc(s?.label || sid)}<button type="button" class="chip-remove" title="Remove" data-id="${sid}">×</button></span>`;
+  }).join('')}
+            <div class="source-add-wrap">
+              <button type="button" class="btn btn-sm btn-icon source-add-btn" id="sourceAddBtn" title="Add source">+</button>
+              <div class="source-dropdown" id="sourceDropdown" hidden>
+                ${available.map((s) => `
+                  <button type="button" class="source-option" data-id="${s.id}">${esc(s.label)}${s.requiresCredentials ? ' <span class="hint">(needs credentials)</span>' : ''}</button>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="form-row">
         <label>Tags (space-separated, booru syntax)</label>
@@ -524,7 +542,7 @@ function tagSetFormHtml(t) {
       <div class="form-row">
         <label>Max pages per check (100 posts/page)</label>
         <select name="maxPages">
-          <option value="" ${t?.maxPages == null ? 'selected' : ''}>Auto — backfill everything, then catch up</option>
+          <option value="" ${t?.maxPages == null ? 'selected' : ''}>Auto, backfill everything, then catch up</option>
           <option value="0" ${t?.maxPages === 0 ? 'selected' : ''}>Unlimited (walk all pages every check)</option>
           ${[1, 3, 5, 10, 25, 50].map((n) => `<option value="${n}" ${t?.maxPages === n ? 'selected' : ''}>${n} page${n > 1 ? 's' : ''} (${n * 100} posts)</option>`).join('')}
         </select>
@@ -541,15 +559,76 @@ function tagSetFormHtml(t) {
   `;
 }
 
-function openTagSetModal(t) {
-  openModal(tagSetFormHtml(t));
+async function openTagSetModal(t) {
+  // Only offer indexers the user has actually added in Settings → Indexers.
+  let configuredSources = [];
+  try {
+    const settings = await api('/settings');
+    configuredSources = SOURCES.filter((s) => hasCredentials(settings[s.id] || {}));
+  } catch { /* fall back to all sources if settings can't be loaded */ }
+  openModal(tagSetFormHtml(t, configuredSources));
   document.getElementById('cancelModalBtn').onclick = closeModal;
+
+  // Multi-source picker: chips + a "+" button that opens a dropdown of all
+  // indexers. Clicking an option adds it as a chip; chips can be removed.
+  const picker = document.getElementById('sourcePicker');
+  const addBtn = document.getElementById('sourceAddBtn');
+  const dropdown = document.getElementById('sourceDropdown');
+  const chips = document.getElementById('sourceChips');
+  const getSources = () =>
+    [...picker.querySelectorAll('.source-chip')].map((c) => c.dataset.id);
+
+  addBtn.onclick = (e) => {
+    e.stopPropagation();
+    dropdown.hidden = !dropdown.hidden;
+  };
+  // Close when clicking anywhere outside the picker (persistent listener —
+  // a { once: true } listener could fire on the very click that opened it
+  // and leave the dropdown stuck open afterwards).
+  document.addEventListener('click', (e) => {
+    if (!dropdown.hidden && !picker.contains(e.target)) dropdown.hidden = true;
+  });
+  const refreshOptions = () => {
+    const chosen = new Set(getSources());
+    dropdown.querySelectorAll('.source-option').forEach((opt) => {
+      opt.hidden = chosen.has(opt.dataset.id);
+    });
+  };
+  refreshOptions();
+  dropdown.querySelectorAll('.source-option').forEach((opt) => {
+    opt.onclick = () => {
+      const id = opt.dataset.id;
+      if (getSources().includes(id)) { dropdown.hidden = true; return; }
+      const s = SOURCES.find((x) => x.id === id);
+      const chip = document.createElement('span');
+      chip.className = 'source-chip';
+      chip.dataset.id = id;
+      chip.innerHTML = `${esc(s.label)}<button type="button" class="chip-remove" title="Remove" data-id="${id}">×</button>`;
+      picker.querySelector('.source-add-wrap').before(chip);
+      bindChipRemove(chip);
+      refreshOptions();
+      dropdown.hidden = true;
+    };
+  });
+  function bindChipRemove(chip) {
+    chip.querySelector('.chip-remove').onclick = () => {
+      chip.remove();
+      refreshOptions();
+    };
+  }
+  chips.querySelectorAll('.source-chip').forEach(bindChipRemove);
+
   document.getElementById('tagSetForm').onsubmit = async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
+    const sources = getSources();
+    if (!sources.length) {
+      toast('Pick at least one source', 'error');
+      return;
+    }
     const payload = {
       name: fd.get('name').trim(),
-      source: fd.get('source'),
+      sources,
       tags: fd.get('tags').trim(),
       ratingFilter: fd.get('ratingFilter'),
       minScore: Number(fd.get('minScore')) || 0,
@@ -613,7 +692,7 @@ async function renderArtists() {
   if (!artists.length) {
     $content.innerHTML = emptyState(
       'No artists yet',
-      'An artist watch searches the artist tag on every indexer at once and pulls in everything it finds — no need to pick a single source.',
+      'An artist watch searches the artist tag on every indexer at once and pulls in everything it finds, no need to pick a single source.',
       null, null);
     return;
   }
@@ -648,7 +727,7 @@ async function batchArtists(action, ids) {
   if (action === 'delete' && !confirm(`Delete ${ids.length} artist watch(es)? Already-downloaded files are kept.`)) return;
   try {
     const result = await api('/artists/batch', { method: 'POST', body: JSON.stringify({ action, ids }) });
-    if (action === 'search') toast(`Batch search started for ${result.started} artist watch(es) — results land in the activity feed`);
+    if (action === 'search') toast(`Batch search started for ${result.started} artist watch(es), results land in the activity feed`);
     else toast(`Batch ${action}: ${result.affected ?? result.deleted ?? ids.length} artist watch(es)`);
     batchSelection.artists.clear();
     renderArtists();
@@ -691,7 +770,7 @@ function artistFormHtml(a) {
   return `
     <h2>${isEdit ? 'Edit artist' : 'Add artist'}</h2>
     <p style="margin:-6px 0 14px;color:var(--text-dim);font-size:13px;">
-      Artist watches search <strong>every indexer at once</strong> — the same artwork reposted on
+      Artist watches search <strong>every indexer at once</strong>, the same artwork reposted on
       multiple boorus is deduplicated by hash, so you get one library entry per image.
     </p>
     <form id="artistForm">
@@ -707,7 +786,7 @@ function artistFormHtml(a) {
         <input type="checkbox" id="alsoSearchNameAsTag" name="alsoSearchNameAsTag" ${a?.alsoSearchNameAsTag ? 'checked' : ''} />
         <label for="alsoSearchNameAsTag">Also search the display name as a regular tag</label>
       </div>
-      <p class="hint" style="margin:-4px 0 14px">Some boorus don't file everything under the artist tag but credit the artist as a plain tag — enable this to search both.</p>
+      <p class="hint" style="margin:-4px 0 14px">Some boorus don't file everything under the artist tag but credit the artist as a plain tag, enable this to search both.</p>
       <div class="form-row">
         <label>Rating filter</label>
         <select name="ratingFilter">
@@ -725,7 +804,7 @@ function artistFormHtml(a) {
       <div class="form-row">
         <label>Max pages per check per indexer (100 posts/page)</label>
         <select name="maxPages">
-          <option value="" ${a?.maxPages == null ? 'selected' : ''}>Auto — backfill everything, then catch up</option>
+          <option value="" ${a?.maxPages == null ? 'selected' : ''}>Auto, backfill everything, then catch up</option>
           <option value="0" ${a?.maxPages === 0 ? 'selected' : ''}>Unlimited (walk all pages every check)</option>
           ${[1, 3, 5, 10, 25, 50].map((n) => `<option value="${n}" ${a?.maxPages === n ? 'selected' : ''}>${n} page${n > 1 ? 's' : ''} (${n * 100} posts)</option>`).join('')}
         </select>
@@ -814,11 +893,55 @@ async function deleteArtist(a) {
 
 // ---------- library ----------
 
-const libraryState = { status: '', source: '', q: '', page: 1, pageSize: 40, artistId: null };
+// pageSize: how many posts per page (user-selectable, server caps at 1000).
+// sort: key into LIBRARY_SORTS on the server, score_* sorts by the
+// popularity metric each booru API exposes (upvote/favorite score).
+// view: display mode, 'grid' sizes are thumbnail presets, 'list' is a
+// dense row layout. Persisted to localStorage so choices survive reloads.
+const LIBRARY_SORTS = [
+  { id: 'added_desc', label: 'Newest added' },
+  { id: 'added_asc', label: 'Oldest added' },
+  { id: 'posted_desc', label: 'Newest posted (on source)' },
+  { id: 'posted_asc', label: 'Oldest posted (on source)' },
+  { id: 'score_desc', label: 'Most relevant (highest score)' },
+  { id: 'score_asc', label: 'Lowest score' },
+  { id: 'source_asc', label: 'Source (A-Z)' }
+];
+
+const LIBRARY_VIEWS = [
+  { id: 'grid-sm', label: 'Grid, small thumbs' },
+  { id: 'grid-md', label: 'Grid, medium thumbs' },
+  { id: 'grid-lg', label: 'Grid, large thumbs' },
+  { id: 'grid-xl', label: 'Grid, extra large' },
+  { id: 'list', label: 'List view' }
+];
+
+const LIBRARY_PAGE_SIZES = [20, 40, 60, 100, 200, 500, 1000];
+
+const libraryState = {
+  status: '', source: '', q: '', page: 1, pageSize: 40,
+  sort: 'added_desc', view: 'grid-md', artistId: null
+};
+
+// Restore the user's last sort / page size / view choices.
+try {
+  const saved = JSON.parse(localStorage.getItem('nyarrLibraryPrefs') || '{}');
+  if (saved.pageSize) libraryState.pageSize = Number(saved.pageSize);
+  if (saved.sort && LIBRARY_SORTS.some((s) => s.id === saved.sort)) libraryState.sort = saved.sort;
+  if (saved.view && LIBRARY_VIEWS.some((v) => v.id === saved.view)) libraryState.view = saved.view;
+} catch { /* corrupted prefs, fall back to defaults */ }
+
+function saveLibraryPrefs() {
+  localStorage.setItem('nyarrLibraryPrefs', JSON.stringify({
+    pageSize: libraryState.pageSize,
+    sort: libraryState.sort,
+    view: libraryState.view
+  }));
+}
 
 // Guards for renderLibrary: prevents overlapping renders (slow /library
 // requests piling up every 12s tick) and avoids re-rendering the filter bar
-// out from under the user while they're typing or using a dropdown — which
+// out from under the user while they're typing or using a dropdown, which
 // otherwise destroys the focused element mid-interaction and makes the
 // filter controls appear frozen.
 let libraryRenderInFlight = false;
@@ -827,14 +950,33 @@ function libraryFilterInUse() {
   return Boolean(el && el.closest && el.closest('.filter-bar'));
 }
 
-async function renderLibrary() {
-  if (libraryRenderInFlight || libraryFilterInUse()) return;
+async function renderLibrary(force = false) {
+  // `force` bypasses the focus guard: user-initiated actions (changing a
+  // filter, clicking Refresh) must re-render even though the focused element
+  // is still inside the filter bar at the moment the handler fires.
+  if (libraryRenderInFlight || (!force && libraryFilterInUse())) return;
   libraryRenderInFlight = true;
   try {
     await renderLibraryInner();
   } finally {
     libraryRenderInFlight = false;
   }
+}
+
+// Sources to offer in the Library filter dropdown. When the API reports
+// per-source counts we only list sources that actually have posts (plus the
+// currently-selected one, so an active filter never vanishes). If counts are
+// missing (older server, or the request failed) fall back to showing every
+// known source rather than an empty dropdown.
+function librarySourceOptions(counts) {
+  const all = [...SOURCES, { id: 'manual', label: 'Manual import' }];
+  if (!counts) return all;
+  const withPosts = all.filter((s) => (counts[s.id] || 0) > 0);
+  if (libraryState.source && !withPosts.some((s) => s.id === libraryState.source)) {
+    const selected = all.find((s) => s.id === libraryState.source);
+    if (selected) withPosts.push(selected);
+  }
+  return withPosts;
 }
 
 async function renderLibraryInner() {
@@ -845,6 +987,7 @@ async function renderLibraryInner() {
   if (libraryState.artistId) params.set('artistId', libraryState.artistId);
   params.set('page', libraryState.page);
   params.set('pageSize', libraryState.pageSize);
+  params.set('sort', libraryState.sort);
 
   const data = await api(`/library?${params.toString()}`);
   const artistFilterName = libraryState.artistId
@@ -861,27 +1004,44 @@ async function renderLibraryInner() {
       <input type="text" id="libSearch" placeholder="Filter by tag..." value="${esc(libraryState.q)}" />
       <select id="libSource">
         <option value="">All sources</option>
-        ${SOURCES.map((s) => `<option value="${s.id}" ${libraryState.source === s.id ? 'selected' : ''}>${s.label}</option>`).join('')}
-        <option value="manual" ${libraryState.source === 'manual' ? 'selected' : ''}>Manual import</option>
+        ${librarySourceOptions(data.sourceCounts).map((s) => `<option value="${s.id}" ${libraryState.source === s.id ? 'selected' : ''}>${s.label}</option>`).join('')}
       </select>
       <select id="libStatus">
         <option value="">All statuses</option>
         ${Object.entries(STATUS_LABEL).map(([k, v]) => `<option value="${k}" ${libraryState.status === k ? 'selected' : ''}>${v}</option>`).join('')}
       </select>
+      <select id="libSort" title="Sort order">
+        ${LIBRARY_SORTS.map((s) => `<option value="${s.id}" ${libraryState.sort === s.id ? 'selected' : ''}>${s.label}</option>`).join('')}
+      </select>
+      <select id="libView" title="How posts are displayed">
+        ${LIBRARY_VIEWS.map((v) => `<option value="${v.id}" ${libraryState.view === v.id ? 'selected' : ''}>${v.label}</option>`).join('')}
+      </select>
+      <select id="libPageSize" title="Posts per page">
+        ${LIBRARY_PAGE_SIZES.map((n) => `<option value="${n}" ${libraryState.pageSize === n ? 'selected' : ''}>${n} / page</option>`).join('')}
+        ${LIBRARY_PAGE_SIZES.includes(libraryState.pageSize) ? '' : `<option value="${libraryState.pageSize}" selected>${libraryState.pageSize} / page</option>`}
+      </select>
       ${libraryState.artistId ? `<span class="tag-pill artist-filter-pill">Artist: ${esc(artistFilterName || libraryState.artistId)}
         <button class="pill-x" id="clearArtistFilter" title="Clear artist filter">✕</button></span>` : ''}
       <label class="select-all-label"><input type="checkbox" id="selectAll-library" /> Select all</label>
+      <button class="btn btn-sm" id="libRefresh" title="Reload the library with the current filters">⟳ Refresh</button>
     </div>
     ${batchToolbarHtml('library', currentBatchActions.library)}
-    ${data.items.length ? `<div class="library-grid">${data.items.map(postCard).join('')}</div>`
+    ${data.items.length ? `<div class="library-grid view-${libraryState.view}">${data.items.map(postCard).join('')}</div>`
       : emptyState('No posts match these filters', 'Run a tag set search, or loosen your filters above.', '#/tagsets', 'Go to tag sets')}
     ${data.total > libraryState.pageSize ? paginationHtml(data) : ''}
   `;
 
-  document.getElementById('libSearch').addEventListener('change', (e) => { libraryState.q = e.target.value; libraryState.page = 1; renderLibrary(); });
-  document.getElementById('libSource').addEventListener('change', (e) => { libraryState.source = e.target.value; libraryState.page = 1; renderLibrary(); });
-  document.getElementById('libStatus').addEventListener('change', (e) => { libraryState.status = e.target.value; libraryState.page = 1; renderLibrary(); });
-  document.getElementById('clearArtistFilter')?.addEventListener('click', () => { libraryState.artistId = null; libraryState.page = 1; renderLibrary(); });
+  // All filter controls re-render with force=true: the change event fires
+  // while the control still has focus, so without force the focus guard
+  // would swallow the refresh and the grid would appear frozen.
+  document.getElementById('libSearch').addEventListener('change', (e) => { libraryState.q = e.target.value; libraryState.page = 1; renderLibrary(true); });
+  document.getElementById('libSource').addEventListener('change', (e) => { libraryState.source = e.target.value; libraryState.page = 1; renderLibrary(true); });
+  document.getElementById('libStatus').addEventListener('change', (e) => { libraryState.status = e.target.value; libraryState.page = 1; renderLibrary(true); });
+  document.getElementById('libSort').addEventListener('change', (e) => { libraryState.sort = e.target.value; libraryState.page = 1; saveLibraryPrefs(); renderLibrary(true); });
+  document.getElementById('libView').addEventListener('change', (e) => { libraryState.view = e.target.value; saveLibraryPrefs(); renderLibrary(true); });
+  document.getElementById('libPageSize').addEventListener('change', (e) => { libraryState.pageSize = Number(e.target.value); libraryState.page = 1; saveLibraryPrefs(); renderLibrary(true); });
+  document.getElementById('clearArtistFilter')?.addEventListener('click', () => { libraryState.artistId = null; libraryState.page = 1; renderLibrary(true); });
+  document.getElementById('libRefresh').addEventListener('click', () => renderLibrary(true));
 
   updateBatchBar('library', currentBatchActions.library);
   bindSelectionChecks('library');
@@ -901,6 +1061,25 @@ async function renderLibraryInner() {
 
 function postCard(p) {
   const thumb = p.previewUrl ? `style="background-image:url('${esc(p.previewUrl)}')"` : '';
+  const score = p.score ? `<span class="post-score" title="Score on ${esc(p.source)}">★ ${p.score}</span>` : '';
+  const meta = `<div class="post-meta-row"><span class="post-source"><span class="rating-dot rating-${p.rating}"></span>${esc(p.source)} · ${esc(p.sourcePostId)}</span>${score}</div>`;
+  if (libraryState.view === 'list') {
+    return `
+    <div class="post-card post-card-list">
+      <div class="post-thumb list-thumb" ${thumb}></div>
+      <div class="post-body">
+        ${meta}
+        <div class="post-tags-list">${(p.tags || []).slice(0, 8).map((t) => `<span class="tag-pill">${esc(t)}</span>`).join('')}</div>
+      </div>
+      <div class="post-actions">
+        ${p.status === 'downloaded'
+        ? `<button class="btn btn-sm" data-open="${p.id}">Open</button>`
+        : `<button class="btn btn-sm" id="post-dl-${p.id}" ${p.status === 'downloading' || p.status === 'queued' ? 'disabled' : ''}>${p.status === 'downloading' ? 'Downloading…' : p.status === 'queued' ? 'Queued…' : 'Download'}</button>`}
+        <button class="btn btn-sm btn-icon btn-danger" id="post-del-${p.id}" title="Remove">🗑</button>
+        ${selectionCheckbox('library', p.id)}
+      </div>
+    </div>`;
+  }
   return `
   <div class="post-card">
     <div class="post-thumb" ${thumb}>
@@ -908,7 +1087,7 @@ function postCard(p) {
       <span class="status-chip">${STATUS_LABEL[p.status] || p.status}</span>
     </div>
     <div class="post-body">
-      <div class="post-source"><span class="rating-dot rating-${p.rating}"></span>${esc(p.source)} · ${esc(p.sourcePostId)}</div>
+      ${meta}
       <div class="post-actions">
         ${p.status === 'downloaded'
       ? `<button class="btn btn-sm" data-open="${p.id}">Open</button>`
@@ -991,7 +1170,7 @@ async function renderTags() {
     ${data.groups.length ? `<div class="tag-wall" id="tagWall">
         ${data.groups.map((g) => tagPoster(g)).join('')}
       </div>`
-      : emptyState('No tagged downloads yet', 'Downloaded posts with tags will be grouped here — one poster per tag.', '#/tagsets', 'Go to tag sets')}
+      : emptyState('No tagged downloads yet', 'Downloaded posts with tags will be grouped here, one poster per tag.', '#/tagsets', 'Go to tag sets')}
   `;
 
   const wall = document.getElementById('tagWall');
@@ -1042,7 +1221,7 @@ async function renderTags() {
 function tagPoster(g) {
   const thumb = g.sampleUrl ? `style="background-image:url('${esc(g.sampleUrl)}')"` : '';
   return `
-  <div class="tag-poster" data-tag="${esc(g.tag)}" data-count="${g.count}" title="${esc(g.tag)} — ${g.count} post(s), click to view in library">
+  <div class="tag-poster" data-tag="${esc(g.tag)}" data-count="${g.count}" title="${esc(g.tag)}, ${g.count} post(s), click to view in library">
     <div class="tag-poster-thumb" ${thumb}></div>
     <div class="tag-poster-overlay">
       <span class="tag-poster-name">${esc(g.tag)}</span>
@@ -1120,7 +1299,7 @@ async function renderIndexerSettings() {
           resultEl.textContent = 'Reachable (no credentials set)';
           resultEl.className = 'test-result';
         } else {
-          resultEl.textContent = result.note || 'Reachable — credentials not verifiable';
+          resultEl.textContent = result.note || 'Reachable, credentials not verifiable';
           resultEl.className = 'test-result';
         }
       } catch (err) {
@@ -1132,7 +1311,7 @@ async function renderIndexerSettings() {
 }
 
 // Fields that ship pre-filled by default (baseUrl, and the default user agents
-// on e621/furbooru) don't count as "configured" — only real credentials do.
+// on e621/furbooru) don't count as "configured", only real credentials do.
 function hasCredentials(creds) {
   return Object.keys(creds).some((k) => k !== 'baseUrl' && k !== 'userAgent' && creds[k]);
 }
@@ -1184,8 +1363,8 @@ function openIndexerFormModal(source, creds, onSaved) {
     <h2>${source.label}</h2>
     <p class="hint">Base URL: <span class="mono">${esc(creds.baseUrl || '')}</span></p>
     ${source.requiresCredentials
-      ? `<p class="inline-note warn">${source.label} requires API credentials — searches will fail without them.</p>`
-      : `<p class="inline-note">Credentials are optional for ${source.label} — anonymous search works, keys may unlock higher rate limits.</p>`}
+      ? `<p class="inline-note warn">${source.label} requires API credentials, searches will fail without them.</p>`
+      : `<p class="inline-note">Credentials are optional for ${source.label}, anonymous search works, keys may unlock higher rate limits.</p>`}
     <form id="indexer-form">
       <input type="hidden" name="baseUrl" value="${esc(creds.baseUrl || '')}" />
       ${fields.map((f) => `
@@ -1232,7 +1411,7 @@ function openIndexerFormModal(source, creds, onSaved) {
         resultEl.textContent = 'Reachable (no credentials set)';
         resultEl.className = 'test-result';
       } else {
-        resultEl.textContent = result.note || 'Reachable — credentials not verifiable';
+        resultEl.textContent = result.note || 'Reachable, credentials not verifiable';
         resultEl.className = 'test-result';
       }
     } catch (err) {
@@ -1318,7 +1497,7 @@ async function renderGeneralCategory() {
     <div class="settings-grid">
       <div class="settings-card">
         <h3>Instance</h3>
-        <p class="hint">Cosmetic — shown as the page title and sidebar wordmark.</p>
+        <p class="hint">Cosmetic, shown as the page title and sidebar wordmark.</p>
         <form id="form-instance">
           <div class="form-row">
             <label>Instance name</label>
@@ -1361,7 +1540,7 @@ async function renderLibraryCategory() {
 
       <div class="settings-card">
         <h3>Library location</h3>
-        <p class="hint">Where downloaded files are written. Point this anywhere on disk — a different drive, a NAS mount, wherever you keep your library.</p>
+        <p class="hint">Where downloaded files are written. Point this anywhere on disk, a different drive, a NAS mount, wherever you keep your library.</p>
         <form id="form-library">
           <div class="form-row">
             <label>Library root folder</label>
@@ -1374,7 +1553,7 @@ async function renderLibraryCategory() {
             <button type="submit" class="btn btn-primary btn-sm">Save</button>
           </div>
         </form>
-        <p class="inline-note">To relocate nyarr's own database (tag sets, settings, activity log) rather than just the downloaded files, set the <span class="mono">NYARR_DATA_DIR</span> environment variable before starting the app — see the README.</p>
+        <p class="inline-note">To relocate nyarr's own database (tag sets, settings, activity log) rather than just the downloaded files, set the <span class="mono">NYARR_DATA_DIR</span> environment variable before starting the app, see the README.</p>
       </div>
 
       <div class="settings-card">
@@ -1562,7 +1741,7 @@ async function renderBackupCategory() {
       const text = await file.text();
       const parsed = JSON.parse(text);
       await api('/system/restore', { method: 'POST', body: JSON.stringify(parsed) });
-      toast('Restored — reloading…');
+      toast('Restored, reloading…');
       setTimeout(() => window.location.reload(), 800);
     } catch (err) {
       toast(`Restore failed: ${err.message}`, 'error');

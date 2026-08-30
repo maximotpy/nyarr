@@ -2,10 +2,10 @@
 // boorus that expose a `/index.php?page=dapi&s=post&q=index&json=1` endpoint
 // with a shared response shape: { post: [...] } or a bare array of posts.
 //
-// `pageParam` — the query param used to page; most dapi sites use the
+// `pageParam`, the query param used to page; most dapi sites use the
 // zero-indexed `pid` param (Gelbooru line), some use a 1-indexed `page`
 // param (older APIs). Opt into pid only when that's correct for the site.
-// `viewUrlBuilder` — build the human-facing /index.php?page=post&s=view page
+// `viewUrlBuilder`, build the human-facing /index.php?page=post&s=view page
 // from baseUrl + post id.
 
 const { normalizeRating, httpGetJson, extFromUrl } = require('./base');
@@ -51,12 +51,12 @@ function gelbooruFamilyAdapter({ label, defaultBaseUrl, pageParam = 'pid', md5Fi
 
     async function testConnection(credentials = {}) {
         // Sites like Gelbooru/Realbooru hard-reject anonymous dapi calls with
-        // 401 — surface that as a failure with a hint instead of "reachable".
+        // 401, surface that as a failure with a hint instead of "reachable".
         if (requiresCredentials && (!credentials.apiKey || !credentials.userId)) {
             return {
                 ok: false,
                 authenticated: false,
-                error: `${label} requires both an API key and a user ID for API access — enter both to test.`
+                error: `${label} requires both an API key and a user ID for API access, enter both to test.`
             };
         }
         try {
@@ -67,7 +67,7 @@ function gelbooruFamilyAdapter({ label, defaultBaseUrl, pageParam = 'pid', md5Fi
                 return {
                     ok: false,
                     authenticated: false,
-                    error: `${label} rejected the request (HTTP ${err.status}) — check that the API key and user ID are correct.`
+                    error: `${label} rejected the request (HTTP ${err.status}), check that the API key and user ID are correct.`
                 };
             }
             throw err;

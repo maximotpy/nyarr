@@ -312,7 +312,7 @@ skipped. Requires the `tag` query parameter.
 
 ### `GET /api/library`
 
-Lists indexed posts, newest first. Query parameters:
+Lists indexed posts, newest first by default. Query parameters:
 
 | Parameter | Type | Effect |
 | --- | --- | --- |
@@ -321,8 +321,15 @@ Lists indexed posts, newest first. Query parameters:
 | `tagSetId` | integer | Posts found by this tag set |
 | `artistId` | integer | Posts found by this artist watch |
 | `q` | string | Case insensitive substring match against the post's tags |
+| `sort` | string | One of `added_desc` (default), `added_asc`, `posted_desc`, `posted_asc`, `score_desc`, `score_asc`, `source_asc` |
 | `page` | integer | 1-based page number, default 1 |
-| `pageSize` | integer | Default 40 |
+| `pageSize` | integer | Default 40, clamped to 1-1000 |
+
+`score` is the popularity metric each booru's API exposes (upvote/favorite
+score, Danbooru `score`, Gelbooru family `score`, e621 `score.total`, ...)
+captured at index time, so `score_desc` ("most relevant") works entirely
+against the local library without re-querying the source site. Ties fall
+back to newest-added. Posts imported manually always have `score: 0`.
 
 Response:
 
@@ -331,6 +338,7 @@ Response:
   "total": 1234,
   "page": 1,
   "pageSize": 40,
+  "sort": "added_desc",
   "items": [ { "id": 1, "source": "danbooru", "sourcePostId": "12345", "tags": ["cat"], "status": "downloaded", "filePath": "danbooru/12345.jpg", "rating": "safe", "score": 120, "md5": "...", "ext": "jpg", "width": 1920, "height": 1080, "fileUrl": "https://...", "previewUrl": "https://...", "sourcePageUrl": "https://...", "postedAt": "...", "addedAt": "...", "downloadedAt": "...", "tagSetId": 1, "artistId": null } ]
 }
 ```

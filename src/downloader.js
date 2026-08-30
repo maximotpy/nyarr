@@ -56,7 +56,7 @@ async function downloadOne(post) {
 
     post.status = 'downloaded';
     // Stored relative to the *current* library root, not as an absolute
-    // path — so moving the root later doesn't orphan old records, and the
+    // path, so moving the root later doesn't orphan old records, and the
     // file-serving route can resolve it against whatever root is active.
     post.filePath = path.join(post.source, filename);
     post.downloadedAt = new Date().toISOString();
