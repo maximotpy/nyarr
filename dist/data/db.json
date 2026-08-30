@@ -1,0 +1,81 @@
+{
+  "general": {
+    "instanceName": "nyarr",
+    "port": 7373,
+    "libraryRoot": "C:\\Users\\Usuario\\Documents\\nyarr\\dist\\downloads",
+    "authMethod": "none",
+    "username": "",
+    "passwordHash": "",
+    "passwordSalt": "",
+    "apiKey": "d3e25a9f66fad1d976c3d3bccf18e9e5"
+  },
+  "settings": {
+    "danbooru": {
+      "baseUrl": "https://danbooru.donmai.us",
+      "apiKey": "",
+      "username": ""
+    },
+    "gelbooru": {
+      "baseUrl": "https://gelbooru.com",
+      "apiKey": "",
+      "userId": ""
+    },
+    "e621": {
+      "baseUrl": "https://e621.net",
+      "apiKey": "",
+      "username": "",
+      "userAgent": "nyarr/0.1 (by anonymous)"
+    },
+    "rule34": {
+      "baseUrl": "https://api.rule34.xxx",
+      "apiKey": "",
+      "userId": ""
+    },
+    "safebooru": {
+      "baseUrl": "https://safebooru.org",
+      "apiKey": "",
+      "userId": ""
+    },
+    "konachan": {
+      "baseUrl": "https://konachan.com",
+      "apiKey": "",
+      "username": ""
+    },
+    "yandere": {
+      "baseUrl": "https://yande.re",
+      "apiKey": "",
+      "username": ""
+    },
+    "furbooru": {
+      "baseUrl": "https://furbooru.com",
+      "apiKey": "",
+      "username": "",
+      "userAgent": "nyarr/0.1 (by anonymous)"
+    },
+    "sankaku": {
+      "baseUrl": "https://idol.sankakucomplex.com",
+      "apiKey": "",
+      "userId": ""
+    },
+    "realbooru": {
+      "baseUrl": "https://realbooru.com",
+      "apiKey": "",
+      "userId": ""
+    },
+    "tbib": {
+      "baseUrl": "https://tbib.org",
+      "apiKey": "",
+      "userId": ""
+    },
+    "behoimi": {
+      "baseUrl": "https://behoimi.org",
+      "apiKey": "",
+      "userId": ""
+    }
+  },
+  "tagSets": [],
+  "artists": [],
+  "posts": [],
+  "activity": [],
+  "queue": []
+}

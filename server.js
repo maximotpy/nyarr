@@ -7,7 +7,11 @@ const crypto = require('crypto');
 const { verifyPassword, hashPassword, generateSalt, timingSafeStringEqual } = require('./src/auth');
 
 const app = express();
-const PUBLIC_DIR = path.join(__dirname, 'public');
+// Inside a pkg executable, static assets live in the bundled snapshot;
+// when running from source, they're the normal public/ folder.
+const PUBLIC_DIR = process.pkg
+  ? path.join(__dirname, 'public')
+  : path.join(__dirname, 'public');
 
 app.use(express.json({ limit: '10mb' })); // generous limit: restore uploads the whole db.json
 

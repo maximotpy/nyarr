@@ -3,14 +3,28 @@
   "version": "0.1.0",
   "description": "A *arr-style manager for booru image boards (Danbooru, Gelbooru, e621, Rule34)",
   "main": "server.js",
+  "bin": "server.js",
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "build": "node scripts/build.js"
+    "build": "node scripts/build.js",
+    "build:exe": "node scripts/build.js && pkg . --output dist/nyarr.exe"
   },
   "license": "MIT",
   "dependencies": {
     "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "@yao-pkg/pkg": "^6.22.0"
+  },
+  "pkg": {
+    "assets": [
+      "public/**/*"
+    ],
+    "targets": [
+      "node24-win-x64"
+    ],
+    "outputPath": "dist"
   }
 }

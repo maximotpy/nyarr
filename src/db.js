@@ -9,12 +9,16 @@ const crypto = require('crypto');
 // Docker, or a different drive. This has to be resolved from the
 // environment rather than from a setting *inside* db.json, since the app
 // needs to know where that file is before it can read anything from it.
+// When packaged into a single executable (pkg), __dirname points inside the
+// read-only snapshot, so writable dirs must live next to the .exe instead.
+const APP_BASE = process.pkg ? path.dirname(process.execPath) : path.join(__dirname, '..');
+
 const DATA_DIR = process.env.NYARR_DATA_DIR
   ? path.resolve(process.env.NYARR_DATA_DIR)
-  : path.join(__dirname, '..', 'data');
+  : path.join(APP_BASE, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
-const DEFAULT_LIBRARY_ROOT = path.join(__dirname, '..', 'downloads');
+const DEFAULT_LIBRARY_ROOT = path.join(APP_BASE, 'downloads');
 
 const DEFAULTS = {
   general: {
