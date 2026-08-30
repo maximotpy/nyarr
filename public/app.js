@@ -54,6 +54,29 @@ function closeModal() {
 }
 $modalBackdrop.addEventListener('click', (e) => { if (e.target === $modalBackdrop) closeModal(); });
 
+// ---------- image lightbox ----------
+
+const $lightbox = document.createElement('div');
+$lightbox.className = 'lightbox';
+$lightbox.innerHTML = `
+  <button class="lightbox-close" title="Close">✕</button>
+  <img class="lightbox-img" alt="" />
+`;
+document.body.appendChild($lightbox);
+
+function openLightbox(postId) {
+  const img = $lightbox.querySelector('.lightbox-img');
+  img.src = `/library-files/${postId}`;
+  $lightbox.classList.add('open');
+}
+function closeLightbox() {
+  $lightbox.querySelector('.lightbox-img').src = '';
+  $lightbox.classList.remove('open');
+}
+$lightbox.querySelector('.lightbox-close').addEventListener('click', closeLightbox);
+$lightbox.addEventListener('click', (e) => { if (e.target === $lightbox) closeLightbox(); });
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $lightbox.classList.contains('open')) closeLightbox(); });
+
 const SOURCES = [
   { id: 'danbooru', label: 'Danbooru', requiresCredentials: false },
   { id: 'gelbooru', label: 'Gelbooru', requiresCredentials: true },
@@ -161,7 +184,7 @@ window.addEventListener('DOMContentLoaded', () => {
 // ---------- dashboard ----------
 
 async function renderDashboard() {
-  const [stats, activity] = await Promise.all([api('/stats'), api('/activity')]);
+  const [stats, activity, recent] = await Promise.all([api('/stats'), api('/activity'), api('/downloads/recent?limit=8')]);
   $content.innerHTML = `
     <div class="stat-grid">
       <div class="stat-card accent"><div class="value">${stats.tagSetsEnabled}</div><div class="label">Active tag sets</div></div>
@@ -170,6 +193,9 @@ async function renderDashboard() {
       <div class="stat-card warn"><div class="value">${stats.queued}</div><div class="label">In queue</div></div>
       <div class="stat-card danger"><div class="value">${stats.failed}</div><div class="label">Failed</div></div>
     </div>
+    <h2 class="section-title">Latest downloads</h2>
+    ${recent.length ? `<div class="recent-downloads">${recent.map(recentDownloadCard).join('')}</div>`
+      : emptyState('Nothing downloaded yet', 'Files you download will show up here.', '#/library', 'Go to library')}
     <h2 class="section-title">Recent activity</h2>
     ${activity.length ? `<div class="activity-list">${activity.slice(0, 8).map(activityRow).join('')}</div>`
       : emptyState('No activity yet', 'Create a tag set to start indexing posts.', '#/tagsets', 'Add a tag set')}
@@ -182,6 +208,19 @@ function activityRow(a) {
     <span class="msg">${esc(a.message)}</span>
     <span class="time">${timeAgo(a.at)}</span>
   </div>`;
+}
+
+function recentDownloadCard(p) {
+  const name = p.filePath.split(/[\\/]/).pop();
+  const tags = p.tags.map((t) => `<span class="tag-pill">${esc(t)}</span>`).join('');
+  return `<a class="download-card" href="/library-files/${p.id}" target="_blank" rel="noopener">
+    <span class="download-ext">${esc((p.ext || 'img').toUpperCase())}</span>
+    <span class="download-info">
+      <span class="download-name">${esc(name)}</span>
+      <span class="download-meta">${esc(p.source)} · ${timeAgo(p.downloadedAt)}</span>
+      ${tags ? `<span class="tag-pills">${tags}</span>` : ''}
+    </span>
+  </a>`;
 }
 
 function emptyState(title, body, href, cta) {
@@ -228,6 +267,7 @@ function tagSetCard(t) {
       <div class="tagset-meta">
         <span>${t.postCount} indexed · ${t.downloadedCount} downloaded</span>
         <span>Every ${t.intervalMinutes}m</span>
+        <span>${t.maxPages === 0 ? 'All pages' : t.maxPages != null ? `Max ${t.maxPages} page${t.maxPages > 1 ? 's' : ''}/check` : 'Auto backfill'}</span>
         <span>Checked ${timeAgo(t.lastChecked)}</span>
         ${t.autoDownload ? '<span>Auto-download on</span>' : ''}
         ${t.lastError ? `<span style="color:var(--danger)">Error: ${esc(t.lastError)}</span>` : ''}
@@ -274,6 +314,14 @@ function tagSetFormHtml(t) {
         <label>Check interval (minutes)</label>
         <input name="intervalMinutes" type="number" min="5" value="${t?.intervalMinutes ?? 60}" />
       </div>
+      <div class="form-row">
+        <label>Max pages per check (100 posts/page)</label>
+        <select name="maxPages">
+          <option value="" ${t?.maxPages == null ? 'selected' : ''}>Auto — backfill everything, then catch up</option>
+          <option value="0" ${t?.maxPages === 0 ? 'selected' : ''}>Unlimited (walk all pages every check)</option>
+          ${[1, 3, 5, 10, 25, 50].map((n) => `<option value="${n}" ${t?.maxPages === n ? 'selected' : ''}>${n} page${n > 1 ? 's' : ''} (${n * 100} posts)</option>`).join('')}
+        </select>
+      </div>
       <div class="checkbox-row">
         <input type="checkbox" id="autoDownload" name="autoDownload" ${t?.autoDownload ? 'checked' : ''} />
         <label for="autoDownload">Automatically download new matches</label>
@@ -299,6 +347,7 @@ function openTagSetModal(t) {
       ratingFilter: fd.get('ratingFilter'),
       minScore: Number(fd.get('minScore')) || 0,
       intervalMinutes: Number(fd.get('intervalMinutes')) || 60,
+      maxPages: fd.get('maxPages') === '' ? null : Number(fd.get('maxPages')),
       autoDownload: fd.get('autoDownload') === 'on'
     };
     try {
@@ -387,6 +436,9 @@ async function renderLibrary() {
     document.getElementById(`post-dl-${p.id}`)?.addEventListener('click', (e) => downloadPost(p, e.target));
     document.getElementById(`post-del-${p.id}`)?.addEventListener('click', () => deletePost(p));
   });
+  document.querySelectorAll('[data-open]').forEach((el) => {
+    el.addEventListener('click', () => openLightbox(Number(el.dataset.open)));
+  });
   document.querySelectorAll('[data-page]').forEach((el) => {
     el.addEventListener('click', () => { libraryState.page = Number(el.dataset.page); renderLibrary(); });
   });
@@ -403,7 +455,7 @@ function postCard(p) {
       <div class="post-source"><span class="rating-dot rating-${p.rating}"></span>${esc(p.source)} · ${esc(p.sourcePostId)}</div>
       <div class="post-actions">
         ${p.status === 'downloaded'
-      ? `<a class="btn btn-sm" href="/library-files/${p.id}" target="_blank">Open</a>`
+      ? `<button class="btn btn-sm" data-open="${p.id}">Open</button>`
       : `<button class="btn btn-sm" id="post-dl-${p.id}" ${p.status === 'downloading' || p.status === 'queued' ? 'disabled' : ''}>${p.status === 'downloading' ? 'Downloading…' : p.status === 'queued' ? 'Queued…' : 'Download'}</button>`}
         <button class="btn btn-sm btn-icon btn-danger" id="post-del-${p.id}" title="Remove">🗑</button>
       </div>
@@ -621,8 +673,8 @@ function openAddIndexerModal(settings) {
     <p class="hint" style="margin:0 0 10px">nyarr supports the booru sources below. Select an indexer to add its API credentials.</p>
     <div class="indexer-list" id="indexerList">
       ${SOURCES.map((s) => {
-        const c = settings[s.id] || {};
-        const configured = hasCredentials(c);
+    const c = settings[s.id] || {};
+    const configured = hasCredentials(c);
     return `<div class="indexer-list-item ${configured ? 'configured' : ''}" data-id="${s.id}">
           <span class="indexer-name">${s.label}</span>
           <span class="indexer-item-meta">
