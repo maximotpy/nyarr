@@ -103,22 +103,25 @@ function wantsHtml(req) {
   return accept.includes('text/html');
 }
 
+// Assets needed by the login/setup pages themselves. These must be reachable
+// WITHOUT a session, otherwise the logo/css 401 and the browser shows the
+// native Basic-auth popup / a broken image on the login screen.
+const PUBLIC_AUTH_ASSETS = new Set(['/login', '/setup', '/login.html', '/setup.html', '/login.css', '/logo.png']);
+
 // ---- Auth gate (protects everything, UI + API) ----
 // Optional, off by default. Toggle from Settings -> General.
 function authMiddleware(req, res, next) {
   const g = db.data.general;
 
+  if (PUBLIC_AUTH_ASSETS.has(req.path)) return next();
+
   // First-run setup: until an account exists, force everyone to /setup.
   // (authMethod is 'none' by default, so without this the app would be wide open.)
   const needsSetup = g.authMethod !== 'basic' || !g.passwordHash;
   if (needsSetup) {
-    if (req.path === '/setup' || req.path.startsWith('/setup.')) return next();
     if (wantsHtml(req)) return res.redirect('/setup');
     return res.status(503).json({ error: 'Setup required: open the web UI to create an account' });
   }
-
-  // The login page itself must stay reachable
-  if (req.path === '/login' || req.path.startsWith('/login.')) return next();
 
   if (checkCredentials(req)) return next();
 
@@ -126,7 +129,10 @@ function authMiddleware(req, res, next) {
     // Browser: redirect to the login page instead of the Basic popup
     return res.redirect('/login');
   }
-  res.set('WWW-Authenticate', 'Basic realm="nyarr"');
+  // NOTE: no WWW-Authenticate header here on purpose — sending it makes
+  // browsers pop up the native Basic-auth login dialog, which is exactly
+  // what the /login page is meant to replace. API clients already know
+  // how to send Basic auth or X-Api-Key without the hint.
   res.status(401).send('Authentication required');
 }
 app.use(authMiddleware);
