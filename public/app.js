@@ -55,18 +55,18 @@ function closeModal() {
 $modalBackdrop.addEventListener('click', (e) => { if (e.target === $modalBackdrop) closeModal(); });
 
 const SOURCES = [
-  { id: 'danbooru', label: 'Danbooru' },
-  { id: 'gelbooru', label: 'Gelbooru' },
-  { id: 'e621', label: 'e621' },
-  { id: 'rule34', label: 'Rule34' },
-  { id: 'safebooru', label: 'Safebooru' },
-  { id: 'konachan', label: 'Konachan' },
-  { id: 'yandere', label: 'Yande.re' },
-  { id: 'furbooru', label: 'Furbooru' },
-  { id: 'sankaku', label: 'Sankaku Complex' },
-  { id: 'realbooru', label: 'Realbooru' },
-  { id: 'tbib', label: 'TBIB' },
-  { id: 'behoimi', label: 'Behoimi (3dBooru)' }
+  { id: 'danbooru', label: 'Danbooru', requiresCredentials: false },
+  { id: 'gelbooru', label: 'Gelbooru', requiresCredentials: true },
+  { id: 'e621', label: 'e621', requiresCredentials: false },
+  { id: 'rule34', label: 'Rule34', requiresCredentials: true },
+  { id: 'safebooru', label: 'Safebooru', requiresCredentials: false },
+  { id: 'konachan', label: 'Konachan', requiresCredentials: false },
+  { id: 'yandere', label: 'Yande.re', requiresCredentials: false },
+  { id: 'furbooru', label: 'Furbooru', requiresCredentials: false },
+  { id: 'sankaku', label: 'Sankaku Complex', requiresCredentials: true },
+  { id: 'realbooru', label: 'Realbooru', requiresCredentials: true },
+  { id: 'tbib', label: 'TBIB', requiresCredentials: false },
+  { id: 'behoimi', label: 'Behoimi (3dBooru)', requiresCredentials: true }
 ];
 
 const RATING_FILTERS = [
@@ -86,6 +86,7 @@ const ROUTES = {
   dashboard: { title: 'Dashboard', render: renderDashboard },
   tagsets: { title: 'Tag Sets', render: renderTagSets },
   library: { title: 'Library', render: renderLibrary },
+  tags: { title: 'Tags', render: renderTags },
   activity: { title: 'Activity', render: renderActivity },
   settings: { title: 'Settings', render: renderSettings }
 };
@@ -116,6 +117,15 @@ function route() {
   const activeCategory = SETTINGS_CATEGORIES.find((c) => c.id === currentSettingsSub);
   $pageTitle.textContent = activeCategory ? activeCategory.label : ROUTES[found].title;
   $topbarActions.innerHTML = '';
+  // Logout button (only meaningful when auth is enabled; server ignores it otherwise)
+  const logoutBtn = document.createElement('button');
+  logoutBtn.className = 'btn';
+  logoutBtn.textContent = 'Logout';
+  logoutBtn.onclick = async () => {
+    await fetch('/logout', { method: 'POST' });
+    window.location.href = '/login';
+  };
+  $topbarActions.appendChild(logoutBtn);
   $content.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
   ROUTES[found].render();
 }
@@ -431,6 +441,91 @@ async function deletePost(p) {
   }
 }
 
+// ---------- tags (poster wall) ----------
+
+// Remembers the last organize result so the summary banner survives the
+// auto-refresh re-render (which fires every 12s on this route).
+let lastOrganizeResult = null;
+
+async function renderTags() {
+  const data = await api('/library/tags');
+
+  $content.innerHTML = `
+    <div class="filter-bar">
+      <input type="text" id="tagSearch" placeholder="Filter by tag name..." />
+      <select id="tagSort">
+        <option value="count">Most posts</option>
+        <option value="name">Name (A-Z)</option>
+      </select>
+      <button class="btn" id="organizeBtn" title="Create a by-tag/&lt;tag&gt;/ folder structure inside the library root (hardlinks where possible, copies otherwise)">Organize folders</button>
+    </div>
+    ${lastOrganizeResult ? `<div class="organize-banner ${lastOrganizeResult.failed ? 'warn' : 'ok'}">
+        ${esc(lastOrganizeResult.summary)}
+        <button class="btn btn-sm" id="organizeDismiss">✕</button>
+      </div>` : ''}
+    ${data.groups.length ? `<div class="tag-wall" id="tagWall">
+        ${data.groups.map((g) => tagPoster(g)).join('')}
+      </div>`
+      : emptyState('No tagged downloads yet', 'Downloaded posts with tags will be grouped here — one poster per tag.', '#/tagsets', 'Go to tag sets')}
+  `;
+
+  const wall = document.getElementById('tagWall');
+  const search = document.getElementById('tagSearch');
+  const sortSel = document.getElementById('tagSort');
+
+  function applyFilter() {
+    const needle = (search.value || '').toLowerCase();
+    const sort = sortSel.value;
+    const cards = [...wall.children];
+    cards.sort((a, b) => sort === 'name'
+      ? a.dataset.tag.localeCompare(b.dataset.tag)
+      : (Number(b.dataset.count) - Number(a.dataset.count)) || a.dataset.tag.localeCompare(b.dataset.tag));
+    cards.forEach((c) => {
+      const match = !needle || c.dataset.tag.toLowerCase().includes(needle);
+      c.style.display = match ? '' : 'none';
+      wall.appendChild(c);
+    });
+  }
+  search.addEventListener('input', applyFilter);
+  sortSel.addEventListener('change', applyFilter);
+
+  document.getElementById('organizeBtn').addEventListener('click', async (e) => {
+    const btn = e.target;
+    btn.disabled = true;
+    btn.textContent = 'Organizing…';
+    try {
+      lastOrganizeResult = await api('/library/organize', { method: 'POST' });
+      toast(lastOrganizeResult.summary, lastOrganizeResult.failed ? 'error' : 'info');
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+    renderTags();
+  });
+  document.getElementById('organizeDismiss')?.addEventListener('click', () => { lastOrganizeResult = null; renderTags(); });
+
+  // Clicking a poster jumps into the library pre-filtered to that tag.
+  wall.querySelectorAll('.tag-poster').forEach((el) => {
+    el.addEventListener('click', () => {
+      libraryState.q = el.dataset.tag;
+      libraryState.page = 1;
+      window.location.hash = '#/library';
+      renderLibrary();
+    });
+  });
+}
+
+function tagPoster(g) {
+  const thumb = g.sampleUrl ? `style="background-image:url('${esc(g.sampleUrl)}')"` : '';
+  return `
+  <div class="tag-poster" data-tag="${esc(g.tag)}" data-count="${g.count}" title="${esc(g.tag)} — ${g.count} post(s), click to view in library">
+    <div class="tag-poster-thumb" ${thumb}></div>
+    <div class="tag-poster-overlay">
+      <span class="tag-poster-name">${esc(g.tag)}</span>
+      <span class="tag-poster-count">${g.count}</span>
+    </div>
+  </div>`;
+}
+
 // ---------- activity ----------
 
 async function renderActivity() {
@@ -468,10 +563,7 @@ async function renderSettings() {
 
 async function renderIndexerSettings() {
   const settings = await api('/settings');
-  const configured = SOURCES.filter((s) => {
-    const c = settings[s.id] || {};
-    return Object.keys(c).some((k) => k !== 'baseUrl' && c[k]);
-  });
+  const configured = SOURCES.filter((s) => hasCredentials(settings[s.id] || {}));
 
   $content.innerHTML = `
     <div class="indexers-page">
@@ -514,6 +606,12 @@ async function renderIndexerSettings() {
   });
 }
 
+// Fields that ship pre-filled by default (baseUrl, and the default user agents
+// on e621/furbooru) don't count as "configured" — only real credentials do.
+function hasCredentials(creds) {
+  return Object.keys(creds).some((k) => k !== 'baseUrl' && k !== 'userAgent' && creds[k]);
+}
+
 function openAddIndexerModal(settings) {
   openModal(`
     <h2>Add Indexer</h2>
@@ -523,11 +621,14 @@ function openAddIndexerModal(settings) {
     <p class="hint" style="margin:0 0 10px">nyarr supports the booru sources below. Select an indexer to add its API credentials.</p>
     <div class="indexer-list" id="indexerList">
       ${SOURCES.map((s) => {
-    const c = settings[s.id] || {};
-    const configured = Object.keys(c).some((k) => k !== 'baseUrl' && c[k]);
+        const c = settings[s.id] || {};
+        const configured = hasCredentials(c);
     return `<div class="indexer-list-item ${configured ? 'configured' : ''}" data-id="${s.id}">
           <span class="indexer-name">${s.label}</span>
-          ${configured ? '<span class="tag tag-ok">Configured</span>' : ''}
+          <span class="indexer-item-meta">
+            ${s.requiresCredentials ? '<span class="tag tag-warn">API key required</span>' : '<span class="tag tag-ok">No key needed</span>'}
+            ${configured ? '<span class="tag tag-ok">Configured</span>' : ''}
+          </span>
         </div>`;
   }).join('')}
     </div>
@@ -557,6 +658,9 @@ function openIndexerFormModal(source, creds, onSaved) {
   openModal(`
     <h2>${source.label}</h2>
     <p class="hint">Base URL: <span class="mono">${esc(creds.baseUrl || '')}</span></p>
+    ${source.requiresCredentials
+      ? `<p class="inline-note warn">${source.label} requires API credentials — searches will fail without them.</p>`
+      : `<p class="inline-note">Credentials are optional for ${source.label} — anonymous search works, keys may unlock higher rate limits.</p>`}
     <form id="indexer-form">
       <input type="hidden" name="baseUrl" value="${esc(creds.baseUrl || '')}" />
       ${fields.map((f) => `
@@ -811,7 +915,7 @@ async function renderSecurityCategory() {
 
       <div class="settings-card">
         <h3>Authentication</h3>
-        <p class="hint">Off by default. Enable to require a login for the web UI (uses your browser's built-in login prompt).</p>
+        <p class="hint">Off by default. Enable to require a login for the web UI (a login page with a session cookie; API clients can use Basic auth or the API key).</p>
         <form id="form-auth">
           <div class="form-row">
             <label>Method</label>
