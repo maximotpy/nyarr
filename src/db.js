@@ -34,9 +34,18 @@ const DEFAULTS = {
     danbooru: { baseUrl: 'https://danbooru.donmai.us', apiKey: '', username: '' },
     gelbooru: { baseUrl: 'https://gelbooru.com', apiKey: '', userId: '' },
     e621: { baseUrl: 'https://e621.net', apiKey: '', username: '', userAgent: 'nyarr/0.1 (by anonymous)' },
-    rule34: { baseUrl: 'https://api.rule34.xxx', apiKey: '', userId: '' }
+    rule34: { baseUrl: 'https://api.rule34.xxx', apiKey: '', userId: '' },
+    safebooru: { baseUrl: 'https://safebooru.org', apiKey: '', userId: '' },
+    konachan: { baseUrl: 'https://konachan.com', apiKey: '', username: '' },
+    yandere: { baseUrl: 'https://yande.re', apiKey: '', username: '' },
+    furbooru: { baseUrl: 'https://furbooru.com', apiKey: '', username: '', userAgent: 'nyarr/0.1 (by anonymous)' },
+    sankaku: { baseUrl: 'https://idol.sankakucomplex.com', apiKey: '', userId: '' },
+    realbooru: { baseUrl: 'https://realbooru.com', apiKey: '', userId: '' },
+    tbib: { baseUrl: 'https://tbib.org', apiKey: '', userId: '' },
+    behoimi: { baseUrl: 'https://behoimi.org', apiKey: '', userId: '' }
   },
   tagSets: [],
+  artists: [],
   posts: [],
   activity: [],
   queue: []
@@ -51,6 +60,15 @@ function ensureFile() {
 
 ensureFile();
 
+// Make sure the default library root exists on first run (e.g. a fresh
+// clone from git, where downloads/ only contains .gitkeep). Runtime
+// changes to libraryRoot are validated/created in routes/general.js, and
+// the downloader creates per-post directories on demand — this just
+// guarantees the default folder is present at boot.
+if (!fs.existsSync(DEFAULT_LIBRARY_ROOT)) {
+  fs.mkdirSync(DEFAULT_LIBRARY_ROOT, { recursive: true });
+}
+
 let cache = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
 // Backfill any top-level keys added since a given db.json was created...
 for (const key of Object.keys(DEFAULTS)) {
@@ -60,6 +78,16 @@ for (const key of Object.keys(DEFAULTS)) {
 // an existing install doesn't crash on a missing field.
 for (const key of Object.keys(DEFAULTS.general)) {
   if (!(key in cache.general)) cache.general[key] = DEFAULTS.general[key];
+}
+// Backfill first-level nested keys of other object-shaped defaults (like
+// `settings.<indexer>`) as indexers are added over time, so an existing
+// db.json gets the new indexer entries with empty credentials.
+for (const key of Object.keys(DEFAULTS)) {
+  if (!cache[key] || typeof cache[key] !== 'object') continue;
+  for (const inner of Object.keys(DEFAULTS[key] || {})) {
+    if (!(inner in DEFAULTS[key])) continue;
+    if (!(inner in cache[key])) cache[key][inner] = DEFAULTS[key][inner];
+  }
 }
 
 let writeScheduled = false;

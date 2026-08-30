@@ -5,21 +5,62 @@ const { enqueueDownload } = require('./downloader');
 
 // How many pages to walk on a tag set's very first check, so a freshly
 // created tag set backfills some history instead of only catching posts
-// from this point forward.
+// from this point forward. Overridden by tagSet.maxPages when set.
 const INITIAL_BACKFILL_PAGES = 3;
-const PAGE_LIMIT = 100;
+const PAGE_LIMIT = 100; // most booru APIs cap a single request at 100 posts
+// Politeness delay between consecutive page requests to the same booru
+// (milliseconds). Keeps a full-history backfill from hammering the API.
+const PAGE_DELAY_MS = 750;
+// Hard ceiling on pages per run as a runaway guard (100 pages = 10k posts
+// per tag set per run). tagSet.maxPages can lower this, never raise it.
+const ABSOLUTE_MAX_PAGES = 100;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function runTagSet(tagSet, { manual = false } = {}) {
   const indexer = indexers.get(tagSet.source);
   const credentials = db.data.settings[tagSet.source] || {};
   const isFirstRun = !tagSet.lastChecked;
-  const pagesToWalk = isFirstRun ? INITIAL_BACKFILL_PAGES : 1;
+
+  // Page budget for this run:
+  //  - explicit maxPages on the tag set wins (0 = unlimited, capped only
+  //    by ABSOLUTE_MAX_PAGES as a runaway guard)
+  //  - otherwise first runs backfill INITIAL_BACKFILL_PAGES and recurring
+  //    checks walk 1 page... unless the previous run hit its budget, in
+  //    which case keep walking (the tag has more history than one pass
+  //    could reach — see tagSet.backfillComplete below).
+  // Capped tag sets (explicit maxPages) resume from where the previous
+  // run stopped via backfillCursor, so successive runs eventually cover
+  // the whole history instead of re-reading page 1 forever.
+  let startPage = 1;
+  let pagesToWalk;
+  if (tagSet.maxPages !== undefined && tagSet.maxPages !== null) {
+    pagesToWalk = tagSet.maxPages === 0 ? ABSOLUTE_MAX_PAGES : Math.min(tagSet.maxPages, ABSOLUTE_MAX_PAGES);
+    if (!isFirstRun && !tagSet.backfillComplete) {
+      startPage = Math.max(1, tagSet.backfillCursor || 1);
+    }
+  } else if (isFirstRun) {
+    pagesToWalk = INITIAL_BACKFILL_PAGES;
+  } else if (tagSet.backfillComplete) {
+    pagesToWalk = 1;
+  } else {
+    // Mid-backfill: resume from where the previous run stopped.
+    startPage = Math.max(1, tagSet.backfillCursor || 1);
+    pagesToWalk = ABSOLUTE_MAX_PAGES;
+  }
+  // A single-page catch-up run (backfill already done) shouldn't flip the
+  // flag back to incomplete just because page 1 came back full — new posts
+  // naturally fill it. Only actual backfill runs can clear the flag.
+  const isCatchUpRun = !isFirstRun && tagSet.backfillComplete && pagesToWalk === 1;
 
   let inserted = 0;
   let seen = 0;
+  let hitEmptyPage = false;
+  let lastPageWalked = startPage - 1;
 
   try {
-    for (let page = 1; page <= pagesToWalk; page++) {
+    for (let page = startPage; page < startPage + pagesToWalk; page++) {
+      if (page > startPage) await sleep(PAGE_DELAY_MS);
       const results = await indexer.search({
         tags: tagSet.tags,
         page,
@@ -27,6 +68,10 @@ async function runTagSet(tagSet, { manual = false } = {}) {
         credentials
       });
       seen += results.length;
+      lastPageWalked = page;
+      // A short page means we've walked past the end of this tag's
+      // history — no point requesting further pages.
+      if (results.length < PAGE_LIMIT) hitEmptyPage = true;
       if (results.length === 0) break;
 
       for (const post of results) {
@@ -68,7 +113,16 @@ async function runTagSet(tagSet, { manual = false } = {}) {
       }
       // Stop walking further back if this page had nothing new at all
       // (recurring checks only need to reach previously-seen territory).
-      if (!isFirstRun) break;
+      if (!isFirstRun && tagSet.backfillComplete) break;
+    }
+
+    // Remember whether the full history has been reached: once a run ends
+    // on a short/empty page, later recurring checks only need 1 page to
+    // catch new posts. If we ran out of budget instead, the next run
+    // resumes the backfill from where this one stopped.
+    if (!isCatchUpRun) {
+      tagSet.backfillComplete = hitEmptyPage;
+      tagSet.backfillCursor = hitEmptyPage ? 1 : lastPageWalked + 1;
     }
 
     tagSet.lastChecked = new Date().toISOString();
@@ -90,6 +144,144 @@ async function runTagSet(tagSet, { manual = false } = {}) {
   }
 
   return { seen, inserted };
+}
+
+// Artist watches are like tag sets, but instead of being pinned to a single
+// booru they search the artist tag on EVERY indexer at once, so one watch
+// pulls in everything the app can find for that artist across all sources.
+// Per-source page budgets are tracked independently (artist.pageCursors)
+// since each booru has its own history depth and rate limits.
+async function runArtist(artist, { manual = false } = {}) {
+  const isFirstRun = !artist.lastChecked;
+  const pageCursors = artist.pageCursors || {};
+
+  // Same budget logic as tag sets: explicit maxPages wins (0 = unlimited,
+  // capped by ABSOLUTE_MAX_PAGES), otherwise first runs backfill a few
+  // pages and recurring checks walk 1 page per source until each source's
+  // backfill completes (short page reached).
+  let pagesToWalk;
+  if (artist.maxPages !== undefined && artist.maxPages !== null) {
+    pagesToWalk = artist.maxPages === 0 ? ABSOLUTE_MAX_PAGES : Math.min(artist.maxPages, ABSOLUTE_MAX_PAGES);
+  } else if (isFirstRun) {
+    pagesToWalk = INITIAL_BACKFILL_PAGES;
+  } else {
+    pagesToWalk = 1;
+  }
+
+  let inserted = 0;
+  let seen = 0;
+  const perSource = [];
+  const errors = [];
+
+  // Only query indexers the user has actually added (credentials entered in
+  // Settings → Indexers). Unconfigured sources would just 401/404 and bury
+  // real results under a wall of errors.
+  const sources = indexers.configuredIds();
+  if (!sources.length) {
+    artist.lastChecked = new Date().toISOString();
+    artist.lastError = 'No indexers configured — add at least one in Settings → Indexers';
+    db.persist();
+    return { seen: 0, inserted: 0, perSource: [], errors: [artist.lastError] };
+  }
+
+  for (const id of sources) {
+    const indexer = indexers.get(id);
+    const credentials = db.data.settings[id] || {};
+    const startPage = Math.max(1, pageCursors[id] || 1);
+    let lastPageWalked = startPage - 1;
+    let hitEmptyPage = false;
+    let sourceInserted = 0;
+
+    try {
+      for (let page = startPage; page < startPage + pagesToWalk; page++) {
+        if (page > startPage) await sleep(PAGE_DELAY_MS);
+        const results = await indexer.search({
+          tags: artist.artistTag,
+          page,
+          limit: PAGE_LIMIT,
+          credentials
+        });
+        seen += results.length;
+        lastPageWalked = page;
+        if (results.length < PAGE_LIMIT) hitEmptyPage = true;
+        if (results.length === 0) break;
+
+        for (const post of results) {
+          if (!ratingAllowed(post.rating, artist.ratingFilter)) continue;
+          if ((post.score ?? 0) < (artist.minScore ?? 0)) continue;
+
+          // Dedupe across sources by md5 too — the same artwork is often
+          // reposted on multiple boorus, and we only want one library entry.
+          const dupeById = db.data.posts.find(
+            (p) => p.source === id && p.sourcePostId === post.sourcePostId
+          );
+          const dupeByHash = post.md5 && db.data.posts.find((p) => p.md5 === post.md5);
+          if (dupeById || dupeByHash) continue;
+
+          const record = {
+            id: db.nextId(db.data.posts),
+            source: id,
+            sourcePostId: post.sourcePostId,
+            sourcePageUrl: post.sourcePageUrl,
+            artistId: artist.id,
+            tagSetId: null,
+            tags: post.tags,
+            rating: post.rating,
+            score: post.score,
+            fileUrl: post.fileUrl,
+            previewUrl: post.previewUrl,
+            width: post.width,
+            height: post.height,
+            md5: post.md5,
+            ext: post.ext,
+            postedAt: post.postedAt,
+            status: 'new',
+            filePath: null,
+            addedAt: new Date().toISOString()
+          };
+          db.data.posts.push(record);
+          inserted++;
+          sourceInserted++;
+
+          if (artist.autoDownload && record.fileUrl) {
+            enqueueDownload(record.id);
+          }
+        }
+        // Recurring catch-up runs only need page 1 per source once the
+        // backfill has completed for that source.
+        if (!isFirstRun && hitEmptyPage) break;
+      }
+
+      // Track per-source backfill position: once a source hits a short
+      // page its history is exhausted, so future runs start at page 1.
+      pageCursors[id] = hitEmptyPage ? 1 : lastPageWalked + 1;
+      perSource.push({ source: id, inserted: sourceInserted });
+    } catch (err) {
+      // One broken indexer (missing credentials, rate limit, downtime)
+      // shouldn't stop the other sources from being searched.
+      errors.push(`${indexer.label}: ${err.message}`);
+      perSource.push({ source: id, inserted: 0, error: err.message });
+    }
+  }
+
+  artist.pageCursors = pageCursors;
+  artist.lastChecked = new Date().toISOString();
+  // Keep the stored error short — full per-source details are returned to
+  // the caller and shown in the UI; a giant HTML blob in db.json helps nobody.
+  artist.lastError = errors.length
+    ? `${errors.length}/${sources.length} source(s) failed: ${errors.map((e) => e.split(':')[0]).join(', ')}`
+    : null;
+  db.persist();
+
+  if (inserted > 0 || manual) {
+    db.logActivity(
+      `"${artist.name}" (all indexers): checked ${seen} post(s), found ${inserted} new` +
+      (errors.length ? ` — ${errors.length}/${perSource.length} source(s) errored` : ''),
+      errors.length && inserted === 0 ? 'warn' : inserted > 0 ? 'success' : 'info'
+    );
+  }
+
+  return { seen, inserted, perSource, errors };
 }
 
 let timer = null;
@@ -115,6 +307,17 @@ function tick() {
       });
     }
   }
+  for (const artist of db.data.artists) {
+    if (!artist.enabled) continue;
+    const dueAt = artist.lastChecked
+      ? new Date(artist.lastChecked).getTime() + artist.intervalMinutes * 60 * 1000
+      : 0;
+    if (now >= dueAt) {
+      runArtist(artist).catch(() => {
+        /* already logged inside runArtist */
+      });
+    }
+  }
 }
 
-module.exports = { start, runTagSet };
+module.exports = { start, runTagSet, runArtist };

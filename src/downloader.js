@@ -59,6 +59,7 @@ async function downloadOne(post) {
     // path — so moving the root later doesn't orphan old records, and the
     // file-serving route can resolve it against whatever root is active.
     post.filePath = path.join(post.source, filename);
+    post.downloadedAt = new Date().toISOString();
     post.error = null;
     db.logActivity(`Downloaded ${post.source}:${post.sourcePostId} -> ${post.filePath}`, 'success');
   } catch (err) {
