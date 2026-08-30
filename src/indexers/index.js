@@ -27,7 +27,11 @@ const REGISTRY = {
 };
 
 function list() {
-  return Object.values(REGISTRY).map((i) => ({ id: i.id, label: i.label }));
+  return Object.values(REGISTRY).map((i) => ({
+    id: i.id,
+    label: i.label,
+    requiresCredentials: Boolean(i.requiresCredentials)
+  }));
 }
 
 function get(id) {

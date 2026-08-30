@@ -1,0 +1,163 @@
+/* nyarr login page — matches the app's dark kraft-paper style */
+
+:root {
+    --bg: #1a1a1a;
+    --bg-raised: #202020;
+    --panel: #242424;
+    --border: #3d3a37;
+    --border-soft: #2d2c2a;
+    --text: #e9e6e1;
+    --text-dim: #a8a29a;
+    --text-faint: #726c64;
+    --accent: #b5793f;
+    --accent-dim: #8a5c30;
+    --accent-glow: rgba(181, 121, 63, 0.16);
+    --danger: #b5544a;
+    --font-ui: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-ui);
+}
+
+.login-page {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 22px;
+    padding: 24px;
+    background:
+        radial-gradient(ellipse 60% 45% at 50% 0%, var(--accent-glow), transparent 70%),
+        var(--bg);
+}
+
+.login-card {
+    width: 100%;
+    max-width: 380px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border-soft);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+}
+
+.login-brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 22px 0;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border-soft);
+}
+
+.login-logo {
+    width: 56px;
+    height: 56px;
+    object-fit: contain;
+}
+
+.login-body {
+    padding: 28px 32px 32px;
+}
+
+.login-title {
+    margin: 0 0 22px;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    text-align: center;
+    color: var(--text);
+}
+
+.login-sub {
+    margin: -14px 0 22px;
+    font-size: 13px;
+    line-height: 1.5;
+    text-align: center;
+    color: var(--text-dim);
+}
+
+.login-body input[type="text"],
+.login-body input[type="password"] {
+    width: 100%;
+    padding: 11px 12px;
+    margin-bottom: 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.login-body input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.login-remember {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 2px 0 16px;
+    font-size: 13px;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+}
+
+.login-remember input {
+    accent-color: var(--accent);
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+}
+
+.login-error {
+    min-height: 18px;
+    margin-bottom: 8px;
+    font-size: 13px;
+    color: var(--danger);
+    text-align: center;
+}
+
+.login-btn {
+    width: 100%;
+    padding: 11px 0;
+    background: var(--accent);
+    border: 1px solid var(--accent-dim);
+    color: #fff;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.login-btn:hover {
+    background: var(--accent-dim);
+}
+
+.login-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.login-footer {
+    font-size: 12px;
+    color: var(--text-faint);
+    letter-spacing: 0.08em;
+}

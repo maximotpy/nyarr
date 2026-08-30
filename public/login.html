@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>nyarr — Sign in</title>
+    <link rel="icon" type="image/png" href="logo.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="login.css" />
+</head>
+
+<body>
+    <div class="login-page">
+        <div class="login-card">
+            <div class="login-brand">
+                <img src="logo.png" alt="" class="login-logo" />
+            </div>
+            <div class="login-body">
+                <h1 class="login-title">Sign in to continue</h1>
+                <form id="loginForm" method="post" action="/login">
+                    <input type="text" name="username" placeholder="Username" autocomplete="username" autofocus
+                        required />
+                    <input type="password" name="password" placeholder="Password" autocomplete="current-password"
+                        required />
+                    <label class="login-remember">
+                        <input type="checkbox" name="remember" value="1" checked />
+                        <span>Remember me</span>
+                    </label>
+                    <div class="login-error" id="loginError"></div>
+                    <button type="submit" class="login-btn">Login</button>
+                </form>
+            </div>
+        </div>
+        <div class="login-footer">nyarr</div>
+    </div>
+    <script>
+        const params = new URLSearchParams(location.search);
+        if (params.get('error') === '1') {
+            document.getElementById('loginError').textContent = 'Incorrect username or password';
+        }
+        document.getElementById('loginForm').addEventListener('submit', function () {
+            const btn = this.querySelector('button');
+            btn.disabled = true;
+            btn.textContent = 'Logging in…';
+        });
+    </script>
+</body>
+
+</html>

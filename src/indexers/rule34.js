@@ -2,6 +2,7 @@ const { normalizeRating, httpGetJson, extFromUrl } = require('./base');
 
 const id = 'rule34';
 const label = 'Rule34';
+const requiresCredentials = true;
 
 async function search({ tags, page = 1, limit = 100, credentials = {} }) {
   const baseUrl = (credentials.baseUrl || 'https://api.rule34.xxx').replace(/\/$/, '');
@@ -72,4 +73,4 @@ async function testConnection(credentials = {}) {
   };
 }
 
-module.exports = { id, label, search, testConnection };
+module.exports = { id, label, requiresCredentials, search, testConnection };

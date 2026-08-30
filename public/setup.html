@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>nyarr — Create your account</title>
+    <link rel="icon" type="image/png" href="logo.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="login.css" />
+</head>
+
+<body>
+    <div class="login-page">
+        <div class="login-card">
+            <div class="login-brand">
+                <img src="logo.png" alt="" class="login-logo" />
+            </div>
+            <div class="login-body">
+                <h1 class="login-title">Create your account to continue</h1>
+                <form id="setupForm" method="post" action="/setup">
+                    <input type="text" name="username" placeholder="Username" autocomplete="username" autofocus required
+                        minlength="1" />
+                    <input type="password" name="password" placeholder="Password" autocomplete="new-password" required
+                        minlength="1" id="password" />
+                    <input type="password" name="password2" placeholder="Confirm password" autocomplete="new-password"
+                        required id="password2" />
+                    <div class="login-error" id="setupError"></div>
+                    <button type="submit" class="login-btn">Create account</button>
+                </form>
+            </div>
+        </div>
+        <div class="login-footer">© 2010-2026 - nyarr</div>
+    </div>
+    <script>
+        const params = new URLSearchParams(location.search);
+        const errEl = document.getElementById('setupError');
+        if (params.get('error') === 'mismatch') errEl.textContent = 'Passwords do not match';
+        else if (params.get('error') === '1') errEl.textContent = 'Username and password are required';
+
+        document.getElementById('setupForm').addEventListener('submit', function (e) {
+            const p1 = document.getElementById('password').value;
+            const p2 = document.getElementById('password2').value;
+            if (p1 !== p2) {
+                e.preventDefault();
+                errEl.textContent = 'Passwords do not match';
+                return;
+            }
+            const btn = this.querySelector('button');
+            btn.disabled = true;
+            btn.textContent = 'Creating account…';
+        });
+    </script>
+</body>
+
+</html>

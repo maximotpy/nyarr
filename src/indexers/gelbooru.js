@@ -2,6 +2,7 @@ const { normalizeRating, httpGetJson, extFromUrl } = require('./base');
 
 const id = 'gelbooru';
 const label = 'Gelbooru';
+const requiresCredentials = true;
 
 async function search({ tags, page = 1, limit = 100, credentials = {} }) {
   const baseUrl = (credentials.baseUrl || 'https://gelbooru.com').replace(/\/$/, '');
@@ -47,12 +48,29 @@ async function search({ tags, page = 1, limit = 100, credentials = {} }) {
 }
 
 async function testConnection(credentials = {}) {
-  // Unlike Danbooru/e621/Rule34, Gelbooru's dapi actually rejects a
-  // mismatched api_key/user_id pair on a normal search request, so this
-  // plain search doubles as a real credential check.
-  const posts = await search({ tags: '', page: 1, limit: 1, credentials });
-  const authenticated = Boolean(credentials.apiKey && credentials.userId) || null;
-  return { ok: true, authenticated, sample: posts.length };
+  // Gelbooru's dapi rejects anonymous requests with 401 (verified Aug 2026),
+  // and also rejects a mismatched api_key/user_id pair on a normal search
+  // request — so this plain search doubles as a real credential check.
+  if (!credentials.apiKey || !credentials.userId) {
+    return {
+      ok: false,
+      authenticated: false,
+      error: 'Gelbooru requires both an API key and a user ID for API access — enter both to test.'
+    };
+  }
+  try {
+    const posts = await search({ tags: '', page: 1, limit: 1, credentials });
+    return { ok: true, authenticated: true, sample: posts.length };
+  } catch (err) {
+    if (err.status === 401 || err.status === 403) {
+      return {
+        ok: false,
+        authenticated: false,
+        error: `Gelbooru rejected the request (HTTP ${err.status}) — check that the API key and user ID are correct.`
+      };
+    }
+    throw err;
+  }
 }
 
-module.exports = { id, label, search, testConnection };
+module.exports = { id, label, requiresCredentials, search, testConnection };

@@ -10,7 +10,7 @@
 
 const { normalizeRating, httpGetJson, extFromUrl } = require('./base');
 
-function gelbooruFamilyAdapter({ label, defaultBaseUrl, pageParam = 'pid', md5Field = 'md5' }) {
+function gelbooruFamilyAdapter({ label, defaultBaseUrl, pageParam = 'pid', md5Field = 'md5', requiresCredentials = false }) {
     async function search({ tags, page = 1, limit = 100, credentials = {} }) {
         const baseUrl = (credentials.baseUrl || defaultBaseUrl).replace(/\/$/, '');
         const params = new URLSearchParams({
@@ -50,8 +50,28 @@ function gelbooruFamilyAdapter({ label, defaultBaseUrl, pageParam = 'pid', md5Fi
     }
 
     async function testConnection(credentials = {}) {
-        const posts = await search({ tags: '', page: 1, limit: 1, credentials });
-        return { ok: true, authenticated: Boolean(credentials.apiKey && credentials.userId) || null, sample: posts.length };
+        // Sites like Gelbooru/Realbooru hard-reject anonymous dapi calls with
+        // 401 — surface that as a failure with a hint instead of "reachable".
+        if (requiresCredentials && (!credentials.apiKey || !credentials.userId)) {
+            return {
+                ok: false,
+                authenticated: false,
+                error: `${label} requires both an API key and a user ID for API access — enter both to test.`
+            };
+        }
+        try {
+            const posts = await search({ tags: '', page: 1, limit: 1, credentials });
+            return { ok: true, authenticated: Boolean(credentials.apiKey && credentials.userId) || null, sample: posts.length };
+        } catch (err) {
+            if (err.status === 401 || err.status === 403) {
+                return {
+                    ok: false,
+                    authenticated: false,
+                    error: `${label} rejected the request (HTTP ${err.status}) — check that the API key and user ID are correct.`
+                };
+            }
+            throw err;
+        }
     }
 
     return { search, testConnection };

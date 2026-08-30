@@ -59,6 +59,15 @@ function ensureFile() {
 
 ensureFile();
 
+// Make sure the default library root exists on first run (e.g. a fresh
+// clone from git, where downloads/ only contains .gitkeep). Runtime
+// changes to libraryRoot are validated/created in routes/general.js, and
+// the downloader creates per-post directories on demand — this just
+// guarantees the default folder is present at boot.
+if (!fs.existsSync(DEFAULT_LIBRARY_ROOT)) {
+  fs.mkdirSync(DEFAULT_LIBRARY_ROOT, { recursive: true });
+}
+
 let cache = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
 // Backfill any top-level keys added since a given db.json was created...
 for (const key of Object.keys(DEFAULTS)) {
