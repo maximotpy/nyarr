@@ -107,7 +107,8 @@ const STATUS_LABEL = {
 
 const ROUTES = {
   dashboard: { title: 'Dashboard', render: renderDashboard },
-  tagsets: { title: 'Tag Sets', render: renderTagSets },
+  tagsets: { title: 'Sets', render: renderTagSets },
+  artists: { title: 'Artists', render: renderArtists },
   library: { title: 'Library', render: renderLibrary },
   tags: { title: 'Tags', render: renderTags },
   activity: { title: 'Activity', render: renderActivity },
@@ -125,6 +126,11 @@ const SETTINGS_CATEGORIES = [
 let currentRoute = 'dashboard';
 let currentSettingsSub = null;
 
+// Sub-navigation shown when the Tags tab is selected (like Settings categories)
+const TAGS_SUB = [
+  { id: 'tagsets', label: 'Sets' }
+];
+
 function route() {
   const parts = window.location.hash.replace('#/', '').split('/').filter(Boolean);
   const hash = parts[0] || 'dashboard';
@@ -137,7 +143,9 @@ function route() {
   });
   renderNavSub();
 
-  const activeCategory = SETTINGS_CATEGORIES.find((c) => c.id === currentSettingsSub);
+  const activeCategory = found === 'settings'
+    ? SETTINGS_CATEGORIES.find((c) => c.id === currentSettingsSub)
+    : (found === 'tagsets' ? TAGS_SUB.find((c) => c.id === 'tagsets') : null);
   $pageTitle.textContent = activeCategory ? activeCategory.label : ROUTES[found].title;
   $topbarActions.innerHTML = '';
   // Logout button (only meaningful when auth is enabled; server ignores it otherwise)
@@ -154,23 +162,36 @@ function route() {
 }
 
 function renderNavSub() {
-  const el = document.getElementById('navSub');
-  if (currentRoute !== 'settings') {
-    el.classList.remove('open');
-    el.innerHTML = '';
-    return;
+  const tagsEl = document.getElementById('navSubTags');
+  const settingsEl = document.getElementById('navSubSettings');
+
+  // Tags sub-nav: only shows Sets
+  if (currentRoute === 'tags' || currentRoute === 'tagsets') {
+    tagsEl.classList.add('open');
+    tagsEl.innerHTML = TAGS_SUB.map((c) => `
+      <a href="#/${c.id}" class="nav-sub-link${currentRoute === c.id ? ' active' : ''}">${c.label}</a>
+    `).join('');
+  } else {
+    tagsEl.classList.remove('open');
+    tagsEl.innerHTML = '';
   }
-  el.classList.add('open');
-  el.innerHTML = SETTINGS_CATEGORIES.map((c) => `
-    <a href="#/settings/${c.id}" class="nav-sub-link${currentSettingsSub === c.id ? ' active' : ''}">${c.label}</a>
-  `).join('');
+
+  // Settings sub-nav: categories
+  if (currentRoute === 'settings') {
+    settingsEl.classList.add('open');
+    settingsEl.innerHTML = SETTINGS_CATEGORIES.map((c) => `
+      <a href="#/settings/${c.id}" class="nav-sub-link${currentSettingsSub === c.id ? ' active' : ''}">${c.label}</a>
+    `).join('');
+  } else {
+    settingsEl.classList.remove('open');
+    settingsEl.innerHTML = '';
+  }
 }
 
 window.addEventListener('hashchange', route);
 window.addEventListener('DOMContentLoaded', () => {
   if (window.NYARR_INSTANCE_NAME && window.NYARR_INSTANCE_NAME !== 'nyarr') {
     document.title = window.NYARR_INSTANCE_NAME;
-    document.getElementById('brandWord').textContent = window.NYARR_INSTANCE_NAME;
   }
   route();
   setInterval(() => {
@@ -231,6 +252,162 @@ function emptyState(title, body, href, cta) {
   </div>`;
 }
 
+// ---------- batch selection ----------
+
+// Selected ids per route, so switching pages doesn't lose your picks.
+const batchSelection = { tagsets: new Set(), artists: new Set(), library: new Set() };
+
+function batchToolbarHtml(route, actions) {
+  return `
+    <div class="batch-bar" id="batchBar-${route}" style="display:none">
+      <span class="batch-count" id="batchCount-${route}"></span>
+      ${actions.map((a) => `<button class="btn btn-sm" data-batch="${a.id}">${esc(a.label)}</button>`).join('')}
+      <button class="btn btn-sm" data-batch="clear">Clear selection</button>
+    </div>`;
+}
+
+function updateBatchBar(route, actions) {
+  const bar = document.getElementById(`batchBar-${route}`);
+  if (!bar) return;
+  const count = batchSelection[route].size;
+  bar.style.display = count ? '' : 'none';
+  document.getElementById(`batchCount-${route}`).textContent = `${count} selected`;
+  bar.querySelectorAll('[data-batch]').forEach((btn) => {
+    btn.onclick = () => {
+      const action = btn.dataset.batch;
+      if (action === 'clear') {
+        batchSelection[route].clear();
+        refreshRoute();
+        return;
+      }
+      const def = actions.find((a) => a.id === action);
+      if (def) def.run([...batchSelection[route]]);
+    };
+  });
+}
+
+function selectionCheckbox(route, id) {
+  const checked = batchSelection[route].has(id) ? 'checked' : '';
+  return `<input type="checkbox" class="batch-check" data-route="${route}" data-id="${id}" ${checked} title="Select" />`;
+}
+
+function bindSelectionChecks(route, rerender) {
+  document.querySelectorAll(`.batch-check[data-route="${route}"]`).forEach((cb) => {
+    cb.addEventListener('change', () => {
+      const id = Number(cb.dataset.id);
+      if (cb.checked) batchSelection[route].add(id);
+      else batchSelection[route].delete(id);
+      updateBatchBar(route, currentBatchActions[route] || []);
+    });
+  });
+  // Select-all toggle in the toolbar
+  document.getElementById(`selectAll-${route}`)?.addEventListener('change', (e) => {
+    const on = e.target.checked;
+    document.querySelectorAll(`.batch-check[data-route="${route}"]`).forEach((cb) => {
+      cb.checked = on;
+      const id = Number(cb.dataset.id);
+      if (on) batchSelection[route].add(id);
+      else batchSelection[route].delete(id);
+    });
+    updateBatchBar(route, currentBatchActions[route] || []);
+  });
+  void rerender;
+}
+
+// Per-route action definitions, set by each render function so the generic
+// binding helpers know what the toolbar buttons do.
+const currentBatchActions = {};
+
+function refreshRoute() {
+  ROUTES[currentRoute].render();
+}
+
+// ---------- drag-to-select (rubber band) ----------
+
+// Lets the user drag a rectangle over the library grid to select every post
+// card it touches — much faster than ticking checkboxes one by one. Holding
+// Shift while dragging ADDS to the existing selection instead of replacing
+// it. The overlay div is appended to <body> once and repositioned per drag.
+const $rubberBand = document.createElement('div');
+$rubberBand.className = 'rubber-band';
+$rubberBand.style.display = 'none';
+document.body.appendChild($rubberBand);
+
+let dragSelect = null; // active drag state or null
+
+function initDragSelect() {
+  const grid = document.querySelector('.library-grid');
+  if (!grid) return;
+
+  grid.addEventListener('mousedown', (e) => {
+    // Only left button; ignore clicks on interactive elements (checkboxes,
+    // buttons, links) so normal per-card actions still work.
+    if (e.button !== 0) return;
+    if (e.target.closest('input, button, a, select, label')) return;
+    e.preventDefault();
+
+    dragSelect = {
+      startX: e.clientX,
+      startY: e.clientY,
+      additive: e.shiftKey,
+      // Snapshot the selection at drag start: additive drags build on it,
+      // replacing drags clear it first.
+      base: new Set(batchSelection.library),
+      touched: new Set()
+    };
+    if (!dragSelect.additive) batchSelection.library.clear();
+    syncLibraryChecks();
+    moveRubberBand(e.clientX, e.clientY, e.clientX, e.clientY);
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragSelect) return;
+    moveRubberBand(dragSelect.startX, dragSelect.startY, e.clientX, e.clientY);
+    const rect = $rubberBand.getBoundingClientRect();
+    const newlyTouched = new Set();
+    grid.querySelectorAll('.post-card').forEach((card) => {
+      const cb = card.querySelector('.batch-check');
+      if (!cb) return;
+      const id = Number(cb.dataset.id);
+      const r = card.getBoundingClientRect();
+      const overlaps = r.left < rect.right && r.right > rect.left && r.top < rect.bottom && r.bottom > rect.top;
+      if (overlaps) newlyTouched.add(id);
+    });
+    dragSelect.touched = newlyTouched;
+    const next = new Set(dragSelect.base);
+    newlyTouched.forEach((id) => next.add(id));
+    batchSelection.library = next;
+    syncLibraryChecks();
+    updateBatchBar('library', currentBatchActions.library || []);
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragSelect) return;
+    dragSelect = null;
+    $rubberBand.style.display = 'none';
+  });
+}
+
+function moveRubberBand(x1, y1, x2, y2) {
+  const left = Math.min(x1, x2);
+  const top = Math.min(y1, y2);
+  const width = Math.abs(x2 - x1);
+  const height = Math.abs(y2 - y1);
+  $rubberBand.style.display = 'block';
+  $rubberBand.style.left = `${left}px`;
+  $rubberBand.style.top = `${top}px`;
+  $rubberBand.style.width = `${width}px`;
+  $rubberBand.style.height = `${height}px`;
+}
+
+// Re-sync the visible checkboxes with the selection set without a full
+// re-render (a re-render mid-drag would kill the drag).
+function syncLibraryChecks() {
+  document.querySelectorAll('.batch-check[data-route="library"]').forEach((cb) => {
+    cb.checked = batchSelection.library.has(Number(cb.dataset.id));
+  });
+}
+
 // ---------- tag sets ----------
 
 async function renderTagSets() {
@@ -242,7 +419,23 @@ async function renderTagSets() {
     $content.innerHTML = emptyState('No tag sets yet', 'A tag set watches a booru for posts matching your tags and pulls them in automatically.', null, null);
     return;
   }
-  $content.innerHTML = `<div class="tagset-list">${tagSets.map(tagSetCard).join('')}</div>`;
+
+  currentBatchActions.tagsets = [
+    { id: 'enable', label: 'Enable', run: (ids) => batchTagSets('enable', ids) },
+    { id: 'disable', label: 'Disable', run: (ids) => batchTagSets('disable', ids) },
+    { id: 'search', label: 'Search now', run: (ids) => batchTagSets('search', ids) },
+    { id: 'delete', label: 'Delete', run: (ids) => batchTagSets('delete', ids) }
+  ];
+
+  $content.innerHTML = `
+    <div class="batch-toolbar">
+      <label class="select-all-label"><input type="checkbox" id="selectAll-tagsets" /> Select all</label>
+    </div>
+    ${batchToolbarHtml('tagsets', currentBatchActions.tagsets)}
+    <div class="tagset-list">${tagSets.map(tagSetCard).join('')}</div>`;
+
+  updateBatchBar('tagsets', currentBatchActions.tagsets);
+  bindSelectionChecks('tagsets');
 
   tagSets.forEach((t) => {
     document.getElementById(`ts-toggle-${t.id}`)?.addEventListener('click', () => toggleTagSet(t));
@@ -252,11 +445,25 @@ async function renderTagSets() {
   });
 }
 
+async function batchTagSets(action, ids) {
+  if (action === 'delete' && !confirm(`Delete ${ids.length} tag set(s)? Already-downloaded files are kept.`)) return;
+  try {
+    const result = await api('/tagsets/batch', { method: 'POST', body: JSON.stringify({ action, ids }) });
+    if (action === 'search') toast(`Batch search started for ${result.started} tag set(s) — results land in the activity feed`);
+    else toast(`Batch ${action}: ${result.affected ?? result.deleted ?? ids.length} tag set(s)`);
+    batchSelection.tagsets.clear();
+    renderTagSets();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
 function tagSetCard(t) {
   const tagList = t.tags.split(' ').filter(Boolean).slice(0, 8);
   const sourceLabel = SOURCES.find((s) => s.id === t.source)?.label || t.source;
   return `
   <div class="tagset-card ${t.enabled ? '' : 'disabled'}">
+    ${selectionCheckbox('tagsets', t.id)}
     <div class="switch ${t.enabled ? 'on' : ''}" id="ts-toggle-${t.id}" title="Enable/disable"></div>
     <div class="tagset-main">
       <div class="tagset-name-row">
@@ -396,19 +603,252 @@ async function deleteTagSet(t) {
   }
 }
 
+// ---------- artists (all-indexer watches) ----------
+
+async function renderArtists() {
+  $topbarActions.innerHTML = `<button class="btn btn-primary" id="addArtistBtn">+ Add artist</button>`;
+  document.getElementById('addArtistBtn').onclick = () => openArtistModal();
+
+  const artists = await api('/artists');
+  if (!artists.length) {
+    $content.innerHTML = emptyState(
+      'No artists yet',
+      'An artist watch searches the artist tag on every indexer at once and pulls in everything it finds — no need to pick a single source.',
+      null, null);
+    return;
+  }
+
+  currentBatchActions.artists = [
+    { id: 'enable', label: 'Enable', run: (ids) => batchArtists('enable', ids) },
+    { id: 'disable', label: 'Disable', run: (ids) => batchArtists('disable', ids) },
+    { id: 'search', label: 'Search now', run: (ids) => batchArtists('search', ids) },
+    { id: 'delete', label: 'Delete', run: (ids) => batchArtists('delete', ids) }
+  ];
+
+  $content.innerHTML = `
+    <div class="batch-toolbar">
+      <label class="select-all-label"><input type="checkbox" id="selectAll-artists" /> Select all</label>
+    </div>
+    ${batchToolbarHtml('artists', currentBatchActions.artists)}
+    <div class="tagset-list">${artists.map(artistCard).join('')}</div>`;
+
+  updateBatchBar('artists', currentBatchActions.artists);
+  bindSelectionChecks('artists');
+
+  artists.forEach((a) => {
+    document.getElementById(`ar-toggle-${a.id}`)?.addEventListener('click', () => toggleArtist(a));
+    document.getElementById(`ar-search-${a.id}`)?.addEventListener('click', (e) => searchNowArtist(a, e.target));
+    document.getElementById(`ar-view-${a.id}`)?.addEventListener('click', () => viewArtistLibrary(a));
+    document.getElementById(`ar-edit-${a.id}`)?.addEventListener('click', () => openArtistModal(a));
+    document.getElementById(`ar-delete-${a.id}`)?.addEventListener('click', () => deleteArtist(a));
+  });
+}
+
+async function batchArtists(action, ids) {
+  if (action === 'delete' && !confirm(`Delete ${ids.length} artist watch(es)? Already-downloaded files are kept.`)) return;
+  try {
+    const result = await api('/artists/batch', { method: 'POST', body: JSON.stringify({ action, ids }) });
+    if (action === 'search') toast(`Batch search started for ${result.started} artist watch(es) — results land in the activity feed`);
+    else toast(`Batch ${action}: ${result.affected ?? result.deleted ?? ids.length} artist watch(es)`);
+    batchSelection.artists.clear();
+    renderArtists();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+function artistCard(a) {
+  return `
+  <div class="tagset-card ${a.enabled ? '' : 'disabled'}">
+    ${selectionCheckbox('artists', a.id)}
+    <div class="switch ${a.enabled ? 'on' : ''}" id="ar-toggle-${a.id}" title="Enable/disable"></div>
+    <div class="tagset-main">
+      <div class="tagset-name-row">
+        <span class="tagset-name">${esc(a.name)}</span>
+        <span class="source-badge">Configured indexers</span>
+      </div>
+      <div class="tag-pills"><span class="tag-pill">${esc(a.artistTag)}</span></div>
+      <div class="tagset-meta">
+        <span>${a.postCount} indexed · ${a.downloadedCount} downloaded</span>
+        <span>Every ${a.intervalMinutes}m</span>
+        <span>${a.maxPages === 0 ? 'All pages' : a.maxPages != null ? `Max ${a.maxPages} page${a.maxPages > 1 ? 's' : ''}/check` : 'Auto backfill'}</span>
+        <span>Checked ${timeAgo(a.lastChecked)}</span>
+        ${a.autoDownload ? '<span>Auto-download on</span>' : ''}
+        ${a.lastError ? `<span style="color:var(--danger)">Error: ${esc(a.lastError)}</span>` : ''}
+      </div>
+    </div>
+    <div class="tagset-actions">
+      <button class="btn btn-sm" id="ar-search-${a.id}">Search now</button>
+      <button class="btn btn-sm" id="ar-view-${a.id}">View posts</button>
+      <button class="btn btn-sm btn-icon" id="ar-edit-${a.id}" title="Edit">✎</button>
+      <button class="btn btn-sm btn-icon btn-danger" id="ar-delete-${a.id}" title="Delete">🗑</button>
+    </div>
+  </div>`;
+}
+
+function artistFormHtml(a) {
+  const isEdit = Boolean(a);
+  return `
+    <h2>${isEdit ? 'Edit artist' : 'Add artist'}</h2>
+    <p style="margin:-6px 0 14px;color:var(--text-dim);font-size:13px;">
+      Artist watches search <strong>every indexer at once</strong> — the same artwork reposted on
+      multiple boorus is deduplicated by hash, so you get one library entry per image.
+    </p>
+    <form id="artistForm">
+      <div class="form-row">
+        <label>Display name</label>
+        <input name="name" required placeholder="e.g. WLOP" value="${esc(a?.name || '')}" />
+      </div>
+      <div class="form-row">
+        <label>Artist tag (booru syntax)</label>
+        <input name="artistTag" required placeholder="e.g. wlop" value="${esc(a?.artistTag || '')}" />
+      </div>
+      <div class="form-row">
+        <label>Rating filter</label>
+        <select name="ratingFilter">
+          ${RATING_FILTERS.map((r) => `<option value="${r.id}" ${(a?.ratingFilter || 'safe_questionable') === r.id ? 'selected' : ''}>${r.label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Minimum score</label>
+        <input name="minScore" type="number" min="0" value="${a?.minScore ?? 0}" />
+      </div>
+      <div class="form-row">
+        <label>Check interval (minutes)</label>
+        <input name="intervalMinutes" type="number" min="5" value="${a?.intervalMinutes ?? 60}" />
+      </div>
+      <div class="form-row">
+        <label>Max pages per check per indexer (100 posts/page)</label>
+        <select name="maxPages">
+          <option value="" ${a?.maxPages == null ? 'selected' : ''}>Auto — backfill everything, then catch up</option>
+          <option value="0" ${a?.maxPages === 0 ? 'selected' : ''}>Unlimited (walk all pages every check)</option>
+          ${[1, 3, 5, 10, 25, 50].map((n) => `<option value="${n}" ${a?.maxPages === n ? 'selected' : ''}>${n} page${n > 1 ? 's' : ''} (${n * 100} posts)</option>`).join('')}
+        </select>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="artistAutoDownload" name="autoDownload" ${a?.autoDownload ? 'checked' : ''} />
+        <label for="artistAutoDownload">Automatically download new matches</label>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn" id="cancelModalBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary">${isEdit ? 'Save changes' : 'Create artist watch'}</button>
+      </div>
+    </form>
+  `;
+}
+
+function openArtistModal(a) {
+  openModal(artistFormHtml(a));
+  document.getElementById('cancelModalBtn').onclick = closeModal;
+  document.getElementById('artistForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const payload = {
+      name: fd.get('name').trim(),
+      artistTag: fd.get('artistTag').trim(),
+      ratingFilter: fd.get('ratingFilter'),
+      minScore: Number(fd.get('minScore')) || 0,
+      intervalMinutes: Number(fd.get('intervalMinutes')) || 60,
+      maxPages: fd.get('maxPages') === '' ? null : Number(fd.get('maxPages')),
+      autoDownload: fd.get('autoDownload') === 'on'
+    };
+    try {
+      if (a) await api(`/artists/${a.id}`, { method: 'PUT', body: JSON.stringify(payload) });
+      else await api('/artists', { method: 'POST', body: JSON.stringify(payload) });
+      closeModal();
+      toast(a ? 'Artist updated' : 'Artist watch created');
+      renderArtists();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  };
+}
+
+async function toggleArtist(a) {
+  try {
+    await api(`/artists/${a.id}`, { method: 'PUT', body: JSON.stringify({ enabled: !a.enabled }) });
+    renderArtists();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+async function searchNowArtist(a, btn) {
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  try {
+    const result = await api(`/artists/${a.id}/search-now`, { method: 'POST' });
+    const errNote = result.errors && result.errors.length ? ` (${result.errors.length} source(s) errored)` : '';
+    toast(`"${a.name}": found ${result.inserted} new post(s)${errNote}`);
+    renderArtists();
+  } catch (err) {
+    toast(err.message, 'error');
+    btn.disabled = false;
+    btn.textContent = 'Search now';
+  }
+}
+
+function viewArtistLibrary(a) {
+  libraryState.artistId = a.id;
+  libraryState.page = 1;
+  window.location.hash = '#/library';
+  renderLibrary();
+}
+
+async function deleteArtist(a) {
+  if (!confirm(`Delete "${a.name}"? Already-downloaded files are kept.`)) return;
+  try {
+    await api(`/artists/${a.id}`, { method: 'DELETE' });
+    toast('Artist watch deleted');
+    renderArtists();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
 // ---------- library ----------
 
-const libraryState = { status: '', source: '', q: '', page: 1, pageSize: 40 };
+const libraryState = { status: '', source: '', q: '', page: 1, pageSize: 40, artistId: null };
+
+// Guards for renderLibrary: prevents overlapping renders (slow /library
+// requests piling up every 12s tick) and avoids re-rendering the filter bar
+// out from under the user while they're typing or using a dropdown — which
+// otherwise destroys the focused element mid-interaction and makes the
+// filter controls appear frozen.
+let libraryRenderInFlight = false;
+function libraryFilterInUse() {
+  const el = document.activeElement;
+  return Boolean(el && el.closest && el.closest('.filter-bar'));
+}
 
 async function renderLibrary() {
+  if (libraryRenderInFlight || libraryFilterInUse()) return;
+  libraryRenderInFlight = true;
+  try {
+    await renderLibraryInner();
+  } finally {
+    libraryRenderInFlight = false;
+  }
+}
+
+async function renderLibraryInner() {
   const params = new URLSearchParams();
   if (libraryState.status) params.set('status', libraryState.status);
   if (libraryState.source) params.set('source', libraryState.source);
   if (libraryState.q) params.set('q', libraryState.q);
+  if (libraryState.artistId) params.set('artistId', libraryState.artistId);
   params.set('page', libraryState.page);
   params.set('pageSize', libraryState.pageSize);
 
   const data = await api(`/library?${params.toString()}`);
+  const artistFilterName = libraryState.artistId
+    ? (await api('/artists')).find((a) => a.id === libraryState.artistId)?.name
+    : null;
+
+  currentBatchActions.library = [
+    { id: 'download', label: 'Download selected', run: (ids) => batchPosts('download', ids) },
+    { id: 'delete', label: 'Delete selected', run: (ids) => batchPosts('delete', ids) }
+  ];
 
   $content.innerHTML = `
     <div class="filter-bar">
@@ -422,7 +862,11 @@ async function renderLibrary() {
         <option value="">All statuses</option>
         ${Object.entries(STATUS_LABEL).map(([k, v]) => `<option value="${k}" ${libraryState.status === k ? 'selected' : ''}>${v}</option>`).join('')}
       </select>
+      ${libraryState.artistId ? `<span class="tag-pill artist-filter-pill">Artist: ${esc(artistFilterName || libraryState.artistId)}
+        <button class="pill-x" id="clearArtistFilter" title="Clear artist filter">✕</button></span>` : ''}
+      <label class="select-all-label"><input type="checkbox" id="selectAll-library" /> Select all</label>
     </div>
+    ${batchToolbarHtml('library', currentBatchActions.library)}
     ${data.items.length ? `<div class="library-grid">${data.items.map(postCard).join('')}</div>`
       : emptyState('No posts match these filters', 'Run a tag set search, or loosen your filters above.', '#/tagsets', 'Go to tag sets')}
     ${data.total > libraryState.pageSize ? paginationHtml(data) : ''}
@@ -431,6 +875,11 @@ async function renderLibrary() {
   document.getElementById('libSearch').addEventListener('change', (e) => { libraryState.q = e.target.value; libraryState.page = 1; renderLibrary(); });
   document.getElementById('libSource').addEventListener('change', (e) => { libraryState.source = e.target.value; libraryState.page = 1; renderLibrary(); });
   document.getElementById('libStatus').addEventListener('change', (e) => { libraryState.status = e.target.value; libraryState.page = 1; renderLibrary(); });
+  document.getElementById('clearArtistFilter')?.addEventListener('click', () => { libraryState.artistId = null; libraryState.page = 1; renderLibrary(); });
+
+  updateBatchBar('library', currentBatchActions.library);
+  bindSelectionChecks('library');
+  initDragSelect();
 
   data.items.forEach((p) => {
     document.getElementById(`post-dl-${p.id}`)?.addEventListener('click', (e) => downloadPost(p, e.target));
@@ -449,6 +898,7 @@ function postCard(p) {
   return `
   <div class="post-card">
     <div class="post-thumb" ${thumb}>
+      ${selectionCheckbox('library', p.id)}
       <span class="status-chip">${STATUS_LABEL[p.status] || p.status}</span>
     </div>
     <div class="post-body">
@@ -488,6 +938,23 @@ async function deletePost(p) {
   try {
     await api(`/library/${p.id}`, { method: 'DELETE' });
     renderLibrary();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+async function batchPosts(action, ids) {
+  if (action === 'delete' && !confirm(`Remove ${ids.length} post(s) from the library? Downloaded files will be deleted too.`)) return;
+  try {
+    const result = await api('/library/batch', { method: 'POST', body: JSON.stringify({ action, ids }) });
+    if (action === 'download') {
+      toast(`Queued ${result.queued} download(s)${result.skipped ? `, skipped ${result.skipped} (already downloaded/queued or no file URL)` : ''}`);
+      setTimeout(renderLibrary, 800);
+    } else {
+      toast(`Removed ${result.deleted} post(s)`);
+      batchSelection.library.clear();
+      renderLibrary();
+    }
   } catch (err) {
     toast(err.message, 'error');
   }
