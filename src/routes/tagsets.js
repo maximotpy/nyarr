@@ -18,7 +18,7 @@ router.get('/tagsets', (req, res) => {
 });
 
 router.post('/tagsets', (req, res) => {
-  const { name, source, tags, ratingFilter, minScore, intervalMinutes, autoDownload, enabled } = req.body;
+  const { name, source, tags, ratingFilter, minScore, intervalMinutes, autoDownload, enabled, maxPages } = req.body;
   if (!name || !source || !tags) {
     return res.status(400).json({ error: 'name, source and tags are required' });
   }
@@ -30,6 +30,9 @@ router.post('/tagsets', (req, res) => {
     ratingFilter: ratingFilter || 'safe_questionable',
     minScore: Number(minScore) || 0,
     intervalMinutes: Number(intervalMinutes) || 60,
+    // null = auto (3 pages on first run, then catch-up-as-needed); a
+    // number = fixed page budget per run, 0 = walk everything.
+    maxPages: maxPages === undefined ? null : (maxPages === null ? null : Math.max(0, Number(maxPages) || 0)),
     autoDownload: Boolean(autoDownload),
     enabled: enabled !== undefined ? Boolean(enabled) : true,
     lastChecked: null,
@@ -46,7 +49,7 @@ router.put('/tagsets/:id', (req, res) => {
   const id = Number(req.params.id);
   const tagSet = db.data.tagSets.find((t) => t.id === id);
   if (!tagSet) return res.status(404).json({ error: 'Not found' });
-  const fields = ['name', 'source', 'tags', 'ratingFilter', 'minScore', 'intervalMinutes', 'autoDownload', 'enabled'];
+  const fields = ['name', 'source', 'tags', 'ratingFilter', 'minScore', 'intervalMinutes', 'autoDownload', 'enabled', 'maxPages'];
   for (const f of fields) {
     if (req.body[f] !== undefined) tagSet[f] = req.body[f];
   }
