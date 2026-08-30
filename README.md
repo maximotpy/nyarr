@@ -251,9 +251,6 @@ downloads/                Default library root
   browser's native prompt, no sessions or logout button. Fine for a
   self-hosted personal instance behind your own network; if you need more
   than that, put a proper auth proxy in front instead.
-- The directory browser (`GET /api/system/browse`) lists folders on
-  whatever machine is running the server. If you're accessing nyarr
-  remotely, "Browse" shows the server's filesystem, not your local one.
 - Tag aliasing/implications (a booru auto-expanding a tag to its
   synonyms) is left to each booru's own search, not replicated locally.
 - Backup files contain the API key and booru credentials in plaintext, so
