@@ -1,4 +1,6 @@
 node_modules/
 data/db.json
-downloads/
+# Keep the downloads folder in git, but ignore its contents
+downloads/*
+!downloads/.gitkeep
 *.log
