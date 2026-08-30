@@ -226,6 +226,7 @@ function apiKeyMiddleware(req, res, next) {
 app.use('/api', apiKeyMiddleware);
 app.use('/api', require('./src/routes/settings'));
 app.use('/api', require('./src/routes/tagsets'));
+app.use('/api', require('./src/routes/artists'));
 app.use('/api', require('./src/routes/library'));
 app.use('/api', require('./src/routes/misc'));
 app.use('/api', require('./src/routes/general'));

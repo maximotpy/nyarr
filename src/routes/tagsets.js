@@ -79,4 +79,48 @@ router.post('/tagsets/:id/search-now', async (req, res) => {
   }
 });
 
+// Batch operations on tag sets. Body: { action, ids }
+//   action: 'enable' | 'disable' — flip the enabled flag
+//   action: 'search'             — run search-now on each (fire-and-forget;
+//           results land in the activity feed as each run finishes)
+//   action: 'delete'             — remove the tag sets (downloads are kept)
+router.post('/tagsets/batch', async (req, res) => {
+  const { action, ids } = req.body || {};
+  if (!Array.isArray(ids) || !ids.length) {
+    return res.status(400).json({ error: 'ids array is required' });
+  }
+  const wanted = new Set(ids.map(Number));
+  const targets = db.data.tagSets.filter((t) => wanted.has(t.id));
+
+  if (action === 'enable' || action === 'disable') {
+    const enabled = action === 'enable';
+    targets.forEach((t) => { t.enabled = enabled; });
+    db.persist();
+    db.logActivity(`Batch ${action}: ${targets.length} tag set(s)`, 'info');
+    return res.json({ ok: true, affected: targets.length });
+  }
+
+  if (action === 'search') {
+    // Kick every run off without awaiting — a full backfill on several tag
+    // sets can take minutes, and the HTTP request shouldn't hang on it.
+    targets.forEach((t) => {
+      scheduler.runTagSet(t, { manual: true }).catch(() => { /* logged inside */ });
+    });
+    db.logActivity(`Batch search started for ${targets.length} tag set(s)`, 'info');
+    return res.json({ ok: true, started: targets.length });
+  }
+
+  if (action === 'delete') {
+    for (const t of targets) {
+      const idx = db.data.tagSets.indexOf(t);
+      if (idx !== -1) db.data.tagSets.splice(idx, 1);
+    }
+    db.persist();
+    db.logActivity(`Batch delete: removed ${targets.length} tag set(s)`, 'info');
+    return res.json({ ok: true, deleted: targets.length });
+  }
+
+  return res.status(400).json({ error: 'Unknown action — use enable, disable, search or delete' });
+});
+
 module.exports = router;

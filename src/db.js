@@ -45,6 +45,7 @@ const DEFAULTS = {
     behoimi: { baseUrl: 'https://behoimi.org', apiKey: '', userId: '' }
   },
   tagSets: [],
+  artists: [],
   posts: [],
   activity: [],
   queue: []

@@ -7,12 +7,13 @@ const { enqueueDownload, currentLibraryRoot } = require('../downloader');
 const router = express.Router();
 
 router.get('/library', (req, res) => {
-  const { status, source, tagSetId, q, page = 1, pageSize = 40 } = req.query;
+  const { status, source, tagSetId, artistId, q, page = 1, pageSize = 40 } = req.query;
   let posts = [...db.data.posts];
 
   if (status) posts = posts.filter((p) => p.status === status);
   if (source) posts = posts.filter((p) => p.source === source);
   if (tagSetId) posts = posts.filter((p) => p.tagSetId === Number(tagSetId));
+  if (artistId) posts = posts.filter((p) => p.artistId === Number(artistId));
   if (q) {
     const needle = q.toLowerCase();
     posts = posts.filter((p) => p.tags.some((t) => t.toLowerCase().includes(needle)));
@@ -33,6 +34,58 @@ router.post('/library/:id/download', (req, res) => {
   if (!post) return res.status(404).json({ error: 'Not found' });
   enqueueDownload(id);
   res.json({ ok: true });
+});
+
+// Batch operations on library posts. Body: { action, ids }
+//   action: 'download' — queue every selected post that isn't already
+//           downloaded/in-flight (skipped ones are reported, not errors)
+//   action: 'delete'   — remove posts (and their files, same rules as the
+//           single delete: never touch external/manual imports' files)
+router.post('/library/batch', (req, res) => {
+  const { action, ids } = req.body || {};
+  if (!Array.isArray(ids) || !ids.length) {
+    return res.status(400).json({ error: 'ids array is required' });
+  }
+  const wanted = new Set(ids.map(Number));
+  const targets = db.data.posts.filter((p) => wanted.has(p.id));
+
+  if (action === 'download') {
+    let queued = 0;
+    let skipped = 0;
+    for (const post of targets) {
+      if (post.status === 'downloaded' || post.status === 'downloading' || post.status === 'queued') {
+        skipped++;
+        continue;
+      }
+      if (!post.fileUrl) {
+        skipped++;
+        continue;
+      }
+      enqueueDownload(post.id);
+      queued++;
+    }
+    db.logActivity(`Batch download: queued ${queued} post(s)${skipped ? `, skipped ${skipped}` : ''}`, 'info');
+    return res.json({ ok: true, queued, skipped });
+  }
+
+  if (action === 'delete') {
+    let deleted = 0;
+    for (const post of targets) {
+      const idx = db.data.posts.indexOf(post);
+      if (idx === -1) continue;
+      db.data.posts.splice(idx, 1);
+      if (post.filePath && !post.external) {
+        const abs = path.join(currentLibraryRoot(), post.filePath);
+        fs.unlink(abs, () => { });
+      }
+      deleted++;
+    }
+    db.persist();
+    db.logActivity(`Batch delete: removed ${deleted} post(s) from the library`, 'info');
+    return res.json({ ok: true, deleted });
+  }
+
+  return res.status(400).json({ error: 'Unknown action — use "download" or "delete"' });
 });
 
 router.delete('/library/:id', (req, res) => {
